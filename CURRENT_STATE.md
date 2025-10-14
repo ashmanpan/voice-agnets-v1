@@ -362,6 +362,27 @@ Build React + TypeScript + Tailwind frontend:
    - Bulk task assignment
    - Bulk call scheduling
 
+### Future Drops (After DROP 4)
+
+**DROP 5:** TBD - To be determined based on priorities
+- Options: Task retry/scheduling, Advanced AI analysis, Call recording, Mobile UI, or Integrations
+
+**DROP 6:** Group Calling System (2-3 days)
+- Multi-participant conference calls
+- Speaker identification
+- Turn management
+- Group call UI
+
+**DROP 7:** Ultra-Low Latency Optimization (3-4 days) ⚡ HIGH PRIORITY
+- Goal: Reduce latency from 1-3s to sub-1 second (<1000ms)
+- Strategies:
+  - STT optimization: Deepgram Nova-2-phonecall + streaming (300ms → 150ms)
+  - LLM optimization: Dynamic model selection (8b for simple, 70b for complex)
+  - TTS optimization: Cartesia Sonic or ElevenLabs Turbo (400ms → 150ms)
+  - Pipeline: Parallel processing (overlap STT/LLM/TTS)
+  - Network: Regional deployment + connection pooling
+- Projected: 900ms average (conservative) or 550ms (aggressive)
+
 ---
 
 ## 🐛 Known Issues & Limitations
