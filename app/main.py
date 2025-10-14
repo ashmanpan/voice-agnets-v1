@@ -1446,6 +1446,83 @@ async def update_task(
         }, status_code=500)
 
 
+@app.post("/api/tasks/{task_id}/call")
+async def initiate_task_delivery_call(
+    task_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Initiate a task delivery call immediately
+    This properly sets up the call with task_delivery type BEFORE dispatching the agent
+    """
+    from models import Task
+    try:
+        # Get the task
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return JSONResponse({
+                "success": False,
+                "error": "Task not found"
+            }, status_code=404)
+
+        # Get the contact
+        contact = db.query(Contact).filter(Contact.id == task.contact_id).first()
+        if not contact:
+            return JSONResponse({
+                "success": False,
+                "error": "Contact not found"
+            }, status_code=404)
+
+        # Create call record with task_delivery type FIRST
+        call = Call(
+            contact_id=contact.id,
+            call_type="task_delivery",  # CRITICAL: Set BEFORE agent starts
+            direction="outbound",
+            status="queued",
+            caller_name="Krishnaji's CTO office"
+        )
+        db.add(call)
+        db.commit()
+        db.refresh(call)
+
+        # Link task to call
+        task.assigned_call_id = call.id
+        task.status = "in_progress"
+        db.commit()
+
+        # Now initiate the call using the helper function
+        try:
+            room_name = await initiate_livekit_call(
+                db=db,
+                call_id=call.id,
+                phone_number=contact.phone_number,
+                contact_name=contact.name,
+                custom_greeting=None,  # Agent will generate from task
+                caller_name="Krishnaji's CTO office"
+            )
+
+            return JSONResponse({
+                "success": True,
+                "task_id": task.id,
+                "call_id": call.id,
+                "room_name": room_name,
+                "message": f"Task delivery call initiated to {contact.name}"
+            })
+
+        except Exception as e:
+            # Rollback task status if call fails
+            task.status = "pending"
+            task.assigned_call_id = None
+            db.commit()
+            raise e
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
 @app.get("/api/actions")
 async def list_actions(
     status: Optional[str] = None,
