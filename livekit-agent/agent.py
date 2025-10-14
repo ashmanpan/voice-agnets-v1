@@ -190,12 +190,174 @@ def update_call_transcript(call_id: int):
     thread.start()
 
 
+def save_task_response(task_id: int, call_id: int):
+    """
+    Analyze conversation and save task response (non-blocking)
+    Extracts answers from transcript and updates task status
+    """
+    import threading
+
+    def _save():
+        try:
+            from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
+            from sqlalchemy.ext.declarative import declarative_base
+            import json
+
+            Base = declarative_base()
+
+            class Task(Base):
+                __tablename__ = "tasks"
+                id = Column(Integer, primary_key=True)
+                contact_response = Column(Text)
+                response_sentiment = Column(String(20))
+                task_completed = Column(Boolean)
+                status = Column(String(20))
+                completed_at = Column(DateTime)
+                call_attempts = Column(Integer)
+
+            class TranscriptSegment(Base):
+                __tablename__ = "transcript_segments"
+                id = Column(Integer, primary_key=True)
+                call_id = Column(Integer)
+                speaker = Column(String(10))
+                text = Column(Text)
+                sequence_number = Column(Integer)
+
+            db = SessionLocal()
+
+            # Get all transcript segments
+            segments = (
+                db.query(TranscriptSegment)
+                .filter(TranscriptSegment.call_id == call_id)
+                .order_by(TranscriptSegment.sequence_number)
+                .all()
+            )
+
+            if not segments:
+                logger.warning(f"No transcript found for call {call_id}")
+                db.close()
+                return
+
+            # Build conversation
+            conversation = []
+            user_responses = []
+            for seg in segments:
+                if seg.speaker == "user":
+                    user_responses.append(seg.text)
+                conversation.append(f"{'User' if seg.speaker == 'user' else 'Agent'}: {seg.text}")
+
+            full_conversation = "\n".join(conversation)
+            combined_responses = " ".join(user_responses)
+
+            # Simple sentiment analysis (can be enhanced with AI later)
+            sentiment = "neutral"
+            positive_words = ["yes", "sure", "okay", "great", "good", "thanks", "appreciate"]
+            negative_words = ["no", "can't", "won't", "not", "busy", "later", "problem"]
+
+            lower_response = combined_responses.lower()
+            if any(word in lower_response for word in positive_words):
+                sentiment = "positive"
+            elif any(word in lower_response for word in negative_words):
+                sentiment = "negative"
+
+            # Determine if task was completed based on conversation
+            task_completed = sentiment == "positive" and len(user_responses) > 0
+
+            # Update task
+            task = db.query(Task).filter(Task.id == task_id).first()
+            if task:
+                task.contact_response = combined_responses[:1000]  # Limit to 1000 chars
+                task.response_sentiment = sentiment
+                task.task_completed = task_completed
+                task.status = "completed"
+                task.completed_at = datetime.utcnow()
+                task.call_attempts = (task.call_attempts or 0) + 1
+                db.commit()
+
+                logger.info(f"✅ Task {task_id} response saved - Sentiment: {sentiment}, Completed: {task_completed}")
+
+            db.close()
+        except Exception as e:
+            logger.error(f"Failed to save task response: {e}")
+
+    # Run in background thread
+    thread = threading.Thread(target=_save, daemon=True)
+    thread.start()
+
+
+def load_task_from_database(call_id: int):
+    """
+    Load task details if this is a task delivery call
+    Returns None if no task found or not a task delivery call
+    """
+    try:
+        from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+        from sqlalchemy.ext.declarative import declarative_base
+
+        Base = declarative_base()
+
+        class Call(Base):
+            __tablename__ = "calls"
+            id = Column(Integer, primary_key=True)
+            call_type = Column(String(20))
+
+        class Task(Base):
+            __tablename__ = "tasks"
+            id = Column(Integer, primary_key=True)
+            assigned_call_id = Column(Integer)
+            title = Column(String(200))
+            description = Column(Text)
+            task_type = Column(String(50))
+            agent_script = Column(Text)
+            questions_to_ask = Column(Text)
+            collect_response = Column(Boolean, default=True)
+            status = Column(String(20))
+
+        db = SessionLocal()
+
+        # Check if this call is a task delivery
+        call = db.query(Call).filter(Call.id == call_id).first()
+        if not call or call.call_type != "task_delivery":
+            db.close()
+            return None
+
+        # Find the task linked to this call
+        task = db.query(Task).filter(Task.assigned_call_id == call_id).first()
+        if not task:
+            db.close()
+            return None
+
+        # Update task status to in_progress
+        task.status = "in_progress"
+        db.commit()
+
+        # Return task details as dict
+        task_data = {
+            "id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "task_type": task.task_type,
+            "agent_script": task.agent_script,
+            "questions_to_ask": task.questions_to_ask,
+            "collect_response": task.collect_response
+        }
+
+        db.close()
+        logger.info(f"📋 Task loaded: {task.title} (ID: {task.id})")
+        return task_data
+
+    except Exception as e:
+        logger.error(f"Failed to load task: {e}")
+        return None
+
+
 async def entrypoint(ctx: JobContext):
     """
     Main entrypoint for the voice agent
 
     This sets up the STT-LLM-TTS pipeline and starts the agent
     Handles both inbound and outbound calls
+    NOW WITH TASK DELIVERY SUPPORT (DROP 2)
     """
     import json
     from livekit import api
@@ -215,6 +377,7 @@ async def entrypoint(ctx: JobContext):
     caller_name = None
     system_prompt = None
     max_turns = None
+    task_data = None  # NEW: Task data for task delivery calls
 
     try:
         if ctx.job.metadata:
@@ -231,6 +394,12 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"Outbound call metadata: phone={phone_number}, call_id={call_id}, max_turns={max_turns}")
             if custom_greeting:
                 logger.info(f"Custom greeting: {custom_greeting[:50]}...")
+
+            # NEW: Load task if this is a task delivery call
+            if call_id:
+                task_data = load_task_from_database(call_id)
+                if task_data:
+                    logger.info(f"📋 This is a TASK DELIVERY call: {task_data['title']}")
     except (json.JSONDecodeError, AttributeError) as e:
         logger.info(f"No metadata or not an outbound call: {e}")
 
@@ -255,11 +424,47 @@ async def entrypoint(ctx: JobContext):
             await ctx.shutdown()
             return
 
+    # NEW: Build task-aware system prompt if this is a task delivery call
+    if task_data and not system_prompt:
+        import json
+        questions = json.loads(task_data['questions_to_ask']) if task_data['questions_to_ask'] else []
+        questions_text = "\n".join([f"   {i+1}. {q}" for i, q in enumerate(questions)])
+
+        system_prompt = f"""You are calling {contact_name} to discuss an important task.
+
+Task: {task_data['title']}
+Details: {task_data['description']}
+
+Your objectives:
+1. Greet them professionally and warmly
+2. Explain the task clearly: {task_data['agent_script'] if task_data['agent_script'] else task_data['description']}
+3. {"Ask these specific questions:" if questions else "Get their confirmation and thoughts."}
+{questions_text if questions else ""}
+4. Listen carefully to their responses
+5. Confirm their understanding
+6. Thank them and end the call
+
+Important guidelines:
+- Be conversational and friendly, not robotic
+- Speak in 1-2 sentences at a time
+- Give them time to respond
+- If they have questions, answer them naturally
+- Keep the call focused on the task
+- Keep the call under 5 minutes
+
+Remember: You're helping them with this task, not interrogating them."""
+
+        logger.info(f"📋 Generated task-aware system prompt for: {task_data['title']}")
+
     # Create voice assistant agent with custom settings
     assistant = VoiceAssistant(
         system_prompt=system_prompt,
         max_turns=max_turns
     )
+
+    # Store task_data in assistant for later use in response collection
+    assistant.task_data = task_data
+    assistant.call_id = call_id
 
     # Create agent session with STT, LLM, and TTS using actual plugins
     # Optimized for ultra-low latency with GROQ (blazing fast LLM!)
@@ -373,6 +578,11 @@ async def entrypoint(ctx: JobContext):
         if call_id:
             logger.info(f"🔚 Session ending, saving final transcript for call {call_id}")
             update_call_transcript(call_id)
+
+            # NEW: Save task response if this was a task delivery call
+            if task_data:
+                logger.info(f"📋 Saving task response for task {task_data['id']}")
+                save_task_response(task_data['id'], call_id)
 
     ctx.add_shutdown_callback(save_transcript_on_shutdown)
 
