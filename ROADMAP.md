@@ -15,6 +15,7 @@
 | DROP 4 | 📋 Planned | 3-4 days | - |
 | DROP 5 | 💡 Future | TBD | - |
 | DROP 6 | 💡 Future | 2-3 days | - |
+| DROP 7 | 💡 Future | 3-4 days | - |
 
 ---
 
@@ -1068,6 +1069,344 @@ group_call = {
 ## Alternative: Sequential Calls
 
 **Note:** For many use cases, calling people sequentially (one after another) may be simpler and more reliable than true group calls. Consider this approach first!
+
+---
+
+# DROP 7: Ultra-Low Latency Optimization ⚡ FUTURE
+
+**Goal:** Reduce agent response latency from 1-3 seconds to sub-1 second
+
+**Status:** Not Started
+**Estimated Duration:** 3-4 days
+**Priority:** HIGH - User wants even better performance
+
+## Current Performance Baseline
+
+### Measured Latency (DROP 2)
+- **STT (Speech-to-Text):** ~300ms (Deepgram Nova-2)
+- **LLM (Language Model):** ~500ms (Groq Llama-3.3-70b)
+- **TTS (Text-to-Speech):** ~400ms (OpenAI)
+- **Network/Processing:** ~200-500ms
+- **Total Response:** 1-3 seconds ✅
+
+### Target Latency
+- **Goal:** < 1 second total response time
+- **Stretch Goal:** 500-800ms for simple responses
+
+## Optimization Strategies
+
+### 1. STT (Speech-to-Text) Optimization
+
+**Current:** Deepgram Nova-2 (~300ms)
+
+**Improvements:**
+- [ ] Enable Deepgram streaming with `interim_results=true`
+- [ ] Use `endpointing` parameter to detect speech end faster
+- [ ] Try Deepgram Nova-2-phonecall model (optimized for phone calls)
+- [ ] Implement voice activity detection (VAD) pre-filtering
+- [ ] Test Deepgram's `smart_format=false` for faster raw transcription
+
+**Expected Gain:** 100-150ms reduction → **~150-200ms**
+
+**Implementation:**
+```python
+# livekit-agent/agent.py
+stt = deepgram.STT(
+    model="nova-2-phonecall",  # Phone-optimized model
+    interim_results=True,      # Stream partial results
+    endpointing=100,           # Detect end of speech faster (100ms)
+    smart_format=False,        # Skip formatting for speed
+    vad_events=True           # Voice activity detection
+)
+```
+
+### 2. LLM (Language Model) Optimization
+
+**Current:** Groq Llama-3.3-70b (~500ms)
+
+**Improvements:**
+- [ ] **Smaller model for simple responses:** Use Llama-3.1-8b for simple confirmations
+- [ ] **Parallel processing:** Start TTS before LLM finishes (stream first sentence)
+- [ ] **Response caching:** Cache common responses (greetings, confirmations)
+- [ ] **Context trimming:** Send only relevant context (trim old conversation)
+- [ ] **Prompt optimization:** Shorter system prompts for faster parsing
+- [ ] **Try Groq's Llama-3.3-70b-specdec:** Speculative decoding for faster inference
+
+**Expected Gain:** 200-300ms reduction → **~200-300ms**
+
+**Implementation:**
+```python
+# Dynamic model selection based on complexity
+def select_model(user_input):
+    simple_patterns = ["yes", "no", "ok", "sure", "yeah", "hello"]
+    if any(p in user_input.lower() for p in simple_patterns):
+        return "llama-3.1-8b-instant"  # ~100ms
+    else:
+        return "llama-3.3-70b-versatile"  # ~500ms
+
+# Response streaming with early TTS start
+async def generate_response(prompt):
+    response_stream = groq_llm.generate_stream(prompt)
+    first_sentence = await get_first_sentence(response_stream)
+
+    # Start TTS immediately with first sentence
+    asyncio.create_task(tts.synthesize(first_sentence))
+
+    # Continue generating rest
+    full_response = first_sentence + await collect_rest(response_stream)
+```
+
+### 3. TTS (Text-to-Speech) Optimization
+
+**Current:** OpenAI TTS (~400ms)
+
+**Improvements:**
+- [ ] **Try ElevenLabs Turbo:** ~200ms latency
+- [ ] **Try Cartesia Sonic:** ~150ms latency (designed for real-time)
+- [ ] **Streaming TTS:** Start playing audio before full synthesis
+- [ ] **Chunk optimization:** Synthesize sentence-by-sentence
+- [ ] **Voice cache:** Pre-generate common phrases
+- [ ] **Lower sample rate:** 16kHz instead of 24kHz for phone calls
+
+**Expected Gain:** 200-250ms reduction → **~150-200ms**
+
+**Implementation:**
+```python
+# Try Cartesia Sonic (ultra-low latency TTS)
+from cartesia import AsyncCartesia
+
+tts = AsyncCartesia(
+    voice="professional-male",
+    sample_rate=16000,  # Lower for phone calls
+    streaming=True      # Stream audio chunks
+)
+
+# Pre-cache common phrases
+tts_cache = {
+    "greeting": preload_audio("Hello, how can I help you?"),
+    "confirmation": preload_audio("Got it, thank you."),
+    "goodbye": preload_audio("Have a great day!")
+}
+```
+
+### 4. Network & Infrastructure Optimization
+
+**Improvements:**
+- [ ] **Regional deployment:** Deploy agent closer to SIP trunk (same region)
+- [ ] **WebSocket optimization:** Reduce LiveKit WebSocket latency
+- [ ] **Connection pooling:** Keep DB connections warm
+- [ ] **Redis caching:** Cache frequent database queries
+- [ ] **CDN for static assets:** Faster UI loading
+
+**Expected Gain:** 100-200ms reduction → **~100-200ms**
+
+### 5. Agent Pipeline Optimization
+
+**Current:** Sequential processing (STT → LLM → TTS)
+
+**Improvements:**
+- [ ] **Parallel processing:** Start LLM while STT is finalizing
+- [ ] **Predictive pre-loading:** Pre-load next likely response
+- [ ] **Response templating:** Use templates for common patterns
+- [ ] **Context pruning:** Keep only last 5 turns in context
+- [ ] **Async everything:** Eliminate all blocking operations
+
+**Expected Gain:** 100-200ms reduction
+
+**Implementation:**
+```python
+# Parallel pipeline
+async def optimized_pipeline(audio_input):
+    # Start STT
+    stt_task = asyncio.create_task(stt.transcribe(audio_input))
+
+    # While waiting, prepare context
+    context_task = asyncio.create_task(prepare_context())
+
+    # Get transcription and context in parallel
+    text, context = await asyncio.gather(stt_task, context_task)
+
+    # Start LLM with streaming
+    llm_stream = llm.generate_stream(text, context)
+
+    # Get first sentence and start TTS immediately
+    first_sentence = await get_first_sentence(llm_stream)
+    tts_task = asyncio.create_task(tts.synthesize(first_sentence))
+
+    # Continue generating while TTS runs
+    rest_text = await collect_rest(llm_stream)
+    rest_audio = await tts.synthesize(rest_text)
+
+    # Combine audio
+    first_audio = await tts_task
+    return first_audio + rest_audio
+```
+
+### 6. Database & Background Operations
+
+**Current:** All DB operations in background threads ✅
+
+**Additional Optimizations:**
+- [ ] **Connection pooling:** Reuse DB connections
+- [ ] **Batch writes:** Group transcript segments
+- [ ] **Lazy loading:** Don't load task until needed
+- [ ] **Query optimization:** Add indexes on frequently queried columns
+- [ ] **Read replicas:** Use read replica for queries
+
+**Expected Gain:** Minimal (already non-blocking), but improves reliability
+
+## Technology Evaluations
+
+### Alternative STT Providers
+| Provider | Model | Latency | Cost | Quality |
+|----------|-------|---------|------|---------|
+| Deepgram | Nova-2 (current) | 300ms | $ | ⭐⭐⭐⭐⭐ |
+| Deepgram | Nova-2-phonecall | 200ms | $ | ⭐⭐⭐⭐⭐ |
+| Assembly AI | Best | 400ms | $$ | ⭐⭐⭐⭐ |
+| Azure | Real-time | 250ms | $$ | ⭐⭐⭐⭐ |
+
+**Recommendation:** Stick with Deepgram, optimize settings
+
+### Alternative LLM Providers
+| Provider | Model | Latency | Cost | Quality |
+|----------|-------|---------|------|---------|
+| Groq | Llama-3.3-70b (current) | 500ms | Free | ⭐⭐⭐⭐⭐ |
+| Groq | Llama-3.1-8b | 100ms | Free | ⭐⭐⭐⭐ |
+| OpenAI | GPT-4o-mini | 800ms | $$ | ⭐⭐⭐⭐⭐ |
+| Anthropic | Claude-3-haiku | 600ms | $$ | ⭐⭐⭐⭐⭐ |
+
+**Recommendation:** Use Llama-3.1-8b for simple responses, 3.3-70b for complex
+
+### Alternative TTS Providers
+| Provider | Model | Latency | Cost | Quality |
+|----------|-------|---------|------|---------|
+| OpenAI | TTS-1 (current) | 400ms | $ | ⭐⭐⭐⭐ |
+| ElevenLabs | Turbo v2 | 200ms | $$ | ⭐⭐⭐⭐⭐ |
+| Cartesia | Sonic | 150ms | $$ | ⭐⭐⭐⭐ |
+| PlayHT | Turbo | 250ms | $$ | ⭐⭐⭐⭐ |
+| Azure | Neural | 350ms | $$ | ⭐⭐⭐⭐ |
+
+**Recommendation:** Try Cartesia Sonic or ElevenLabs Turbo
+
+## Projected Latency After Optimization
+
+### Conservative Estimate
+- STT: 200ms (from 300ms) ✅
+- LLM: 300ms (from 500ms) ✅
+- TTS: 200ms (from 400ms) ✅
+- Network: 200ms (from 300ms) ✅
+- **Total: 900ms** (from 1500ms average)
+
+### Aggressive Estimate
+- STT: 150ms (with streaming + VAD)
+- LLM: 150ms (small model for simple responses)
+- TTS: 150ms (Cartesia Sonic + streaming)
+- Network: 100ms (regional optimization)
+- **Total: 550ms** for simple interactions
+
+## Implementation Plan
+
+### Day 1: STT & TTS Optimization
+1. [ ] Test Deepgram Nova-2-phonecall model
+2. [ ] Enable Deepgram streaming and endpointing
+3. [ ] Integrate Cartesia Sonic TTS
+4. [ ] Compare latency before/after
+5. [ ] A/B test voice quality
+
+### Day 2: LLM Optimization
+1. [ ] Implement dynamic model selection (8b vs 70b)
+2. [ ] Add response caching for common phrases
+3. [ ] Implement context trimming (last 5 turns only)
+4. [ ] Test streaming LLM responses
+5. [ ] Start TTS before LLM finishes
+
+### Day 3: Pipeline & Infrastructure
+1. [ ] Implement parallel pipeline (STT/LLM/TTS overlap)
+2. [ ] Add Redis for response caching
+3. [ ] Optimize database queries with indexes
+4. [ ] Test regional deployment options
+5. [ ] Profile and eliminate bottlenecks
+
+### Day 4: Testing & Measurement
+1. [ ] Comprehensive latency measurements
+2. [ ] Load testing with multiple concurrent calls
+3. [ ] Quality assurance (ensure no quality degradation)
+4. [ ] User acceptance testing
+5. [ ] Documentation and rollout
+
+## Success Criteria
+
+- [ ] **Target:** Average response latency < 1 second
+- [ ] **Stretch:** Simple responses < 600ms
+- [ ] **Quality:** No degradation in transcription accuracy
+- [ ] **Quality:** No degradation in voice naturalness
+- [ ] **Quality:** No degradation in LLM response quality
+- [ ] **Reliability:** 99.9% uptime maintained
+- [ ] **Cost:** Stay within budget (avoid expensive providers)
+
+## Monitoring & Metrics
+
+### Metrics to Track
+```python
+# Add to agent.py
+latency_metrics = {
+    "stt_latency_ms": [],
+    "llm_latency_ms": [],
+    "tts_latency_ms": [],
+    "total_latency_ms": [],
+    "model_used": [],
+    "response_type": []  # simple vs complex
+}
+
+# Log to database for analysis
+async def log_latency(call_id, metrics):
+    await db.execute(
+        "INSERT INTO latency_logs (call_id, stt_ms, llm_ms, tts_ms, total_ms) VALUES ..."
+    )
+```
+
+### Dashboard
+- [ ] Add latency graphs to UI
+- [ ] P50, P95, P99 latency percentiles
+- [ ] Latency by call type (normal vs task delivery)
+- [ ] Model selection statistics
+
+## Cost Analysis
+
+### Current Costs (per 1000 calls)
+- Deepgram STT: ~$5 (10 min avg)
+- Groq LLM: $0 (free tier)
+- OpenAI TTS: ~$15
+- **Total: ~$20 per 1000 calls**
+
+### After Optimization (worst case)
+- Deepgram STT: ~$5 (same)
+- Groq LLM: $0 (still free)
+- Cartesia TTS: ~$25 (more expensive but faster)
+- **Total: ~$30 per 1000 calls**
+
+**Cost increase:** 50%, but worth it for 2-3x latency improvement
+
+## Risk Mitigation
+
+### Fallback Strategy
+- Keep current pipeline as fallback
+- Feature flag for new optimizations
+- Gradual rollout (10% → 50% → 100%)
+- Monitor quality metrics closely
+
+### Quality Assurance
+- A/B test with real users
+- Collect feedback on voice quality
+- Measure task completion rates
+- Compare before/after transcription accuracy
+
+## Alternative: Hybrid Approach
+
+If full optimization is too complex, consider:
+- Use fast models (8b + Cartesia) for **simple interactions** (yes/no, confirmations)
+- Use current models (70b + OpenAI) for **complex tasks** (task delivery, surveys)
+- Best of both worlds: speed where it matters, quality where it matters
 
 ---
 
