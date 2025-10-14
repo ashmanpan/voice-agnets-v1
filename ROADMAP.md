@@ -13,6 +13,8 @@
 | DROP 2 | ✅ Complete | 1 day | 2025-10-15 |
 | DROP 3 | 📋 Planned | 4-5 days | - |
 | DROP 4 | 📋 Planned | 3-4 days | - |
+| DROP 5 | 💡 Future | TBD | - |
+| DROP 6 | 💡 Future | 2-3 days | - |
 
 ---
 
@@ -760,6 +762,312 @@ BulkOperationsBar.tsx        (Appears when items selected)
 - [ ] Bulk operations complete successfully
 - [ ] Progress indicators show for long operations
 - [ ] No performance degradation with large datasets
+
+---
+
+# DROP 5: TBD 💡 FUTURE
+
+**Goal:** To be determined based on priorities after DROP 3 & 4
+
+**Status:** Not Started
+**Estimated Duration:** TBD
+**Priority:** TBD
+
+## Potential Features
+
+This drop is reserved for features that emerge as high-priority after completing DROP 3 & 4. Possible candidates:
+
+### Option A: Task Retry & Scheduling System
+- Automatic retry logic for failed task delivery calls
+- Exponential backoff (15 min, 1 hour, 4 hours)
+- Scheduler service for delayed/scheduled tasks
+- Task queue management
+- Max attempts tracking
+
+### Option B: Advanced AI Analysis
+- LLM-powered sentiment analysis (replace keyword-based)
+- Automatic action classification improvements
+- Better response extraction from conversations
+- Intent detection
+- Topic modeling
+
+### Option C: Call Recording & Playback
+- Store actual audio recordings (not just transcripts)
+- Playback functionality in UI
+- Audio export
+- Privacy/compliance features
+- Storage optimization
+
+### Option D: Mobile Responsive UI
+- Full mobile optimization
+- Touch-friendly interactions
+- Mobile-specific navigation
+- Progressive Web App (PWA) features
+- Offline mode
+
+### Option E: Integration & Webhooks
+- Webhook system for external integrations
+- Zapier/Make.com integration
+- Slack notifications
+- Email notifications
+- Calendar integrations (Google Calendar, Outlook)
+
+**Decision Point:** Will be determined after DROP 3 & 4 based on:
+- User feedback
+- Most requested features
+- System bottlenecks discovered
+- Business priorities
+
+---
+
+# DROP 6: Group Calling System 👥 FUTURE
+
+**Goal:** Enable agent to handle conference calls with multiple participants
+
+**Status:** Not Started
+**Estimated Duration:** 2-3 days
+**Priority:** LOW - Advanced feature
+
+## What We'll Build
+
+### 1. Multi-Participant Call Support
+
+**Technical Implementation:**
+- Modify agent to handle multiple SIP participants in one room
+- Implement speaker identification (voice recognition or name-based)
+- Add turn-taking logic to manage conversation flow
+- Handle interruptions and overlapping speech
+
+**Database Changes:**
+```sql
+-- New table for tracking participants in group calls
+CREATE TABLE call_participants (
+    id SERIAL PRIMARY KEY,
+    call_id INTEGER REFERENCES calls(id),
+    contact_id INTEGER REFERENCES contacts(id),
+    participant_name VARCHAR(200),
+    joined_at TIMESTAMP,
+    left_at TIMESTAMP,
+    speaking_time_seconds INTEGER,
+    turn_count INTEGER
+);
+```
+
+### 2. Agent Multi-Speaker Logic
+
+**File:** `livekit-agent/agent.py`
+
+**Features:**
+- Detect who is speaking (by voice or self-identification)
+- Address people by name in responses
+- Manage turn-taking fairly
+- Track individual participation metrics
+- Handle simultaneous speakers
+
+**System Prompt Enhancement:**
+```python
+system_prompt = f"""You are facilitating a group call with:
+{', '.join([p['name'] for p in participants])}
+
+Your objectives:
+1. Greet everyone by name when they join
+2. Ensure everyone gets a chance to speak
+3. Address people by name when responding
+4. Ask: "Does anyone else have thoughts on this?"
+5. Keep the conversation organized
+6. Summarize key points at the end
+
+Guidelines:
+- Say one person's name before asking them a question
+- Wait for responses before moving on
+- If someone hasn't spoken, invite them: "{name}, what do you think?"
+- Keep track of who said what
+"""
+```
+
+### 3. Call Initiation for Groups
+
+**File:** `app/main.py`
+
+**New Endpoint:** `POST /api/calls/group`
+
+```python
+@app.post("/api/calls/group")
+async def initiate_group_call(
+    contact_ids: List[int],
+    agenda: str,
+    max_duration_minutes: int = 30,
+    db: Session = Depends(get_db)
+):
+    """
+    Initiate a group call with multiple participants
+    """
+    # Create call with type="group"
+    call = Call(
+        call_type="group",
+        direction="outbound",
+        status="initiated"
+    )
+
+    # Create SIP participants for each contact
+    for contact_id in contact_ids:
+        contact = db.query(Contact).get(contact_id)
+        await ctx.api.sip.create_sip_participant(
+            room_name=room_name,
+            sip_call_to=contact.phone_number,
+        )
+
+    # Link all participants to call
+    for contact_id in contact_ids:
+        participant = CallParticipant(
+            call_id=call.id,
+            contact_id=contact_id
+        )
+        db.add(participant)
+```
+
+### 4. Transcript Management for Groups
+
+**Enhanced Transcript:**
+```python
+# Save transcript with speaker identification
+save_transcript_segment_async(
+    call_id=call_id,
+    speaker="contact_1",  # Instead of just "user"
+    speaker_name="John Doe",
+    text=text
+)
+```
+
+### 5. UI for Group Calls
+
+**New Component:** `GroupCallViewer.tsx`
+
+**Features:**
+- Show all participants
+- Visual indicator of who's speaking
+- Per-person speaking time statistics
+- Participant join/leave timeline
+- Multi-column transcript (one per speaker)
+
+## Use Cases
+
+### Conference Calls
+```python
+# Team standup call
+group_call = {
+    "contact_ids": [1, 2, 3, 4],
+    "agenda": "Daily standup - quick updates from everyone",
+    "questions": [
+        "What did you work on yesterday?",
+        "What will you work on today?",
+        "Any blockers?"
+    ]
+}
+```
+
+### Training Sessions
+```python
+# Group training
+group_call = {
+    "contact_ids": [5, 6, 7],
+    "agenda": "New feature training",
+    "type": "announcement",  # Agent speaks, limited responses
+    "duration": 15
+}
+```
+
+### Team Announcements
+```python
+# Important announcement
+group_call = {
+    "contact_ids": [1, 2, 3, 4, 5, 6, 7, 8],
+    "agenda": "Company-wide announcement about policy change",
+    "type": "broadcast",  # One-way communication
+    "collect_questions": True
+}
+```
+
+## Technical Challenges
+
+### 1. Speaker Identification
+**Challenge:** How to know who's speaking in a group?
+
+**Solutions:**
+- Voice biometrics (LiveKit supports)
+- Ask participants to say their name first
+- Use phone number mapping
+- Implement roll call at start
+
+### 2. Turn Management
+**Challenge:** Prevent chaos with multiple speakers
+
+**Solutions:**
+- Agent explicitly calls on people by name
+- Implement "raised hand" feature (DTMF tone)
+- Time limits per speaker
+- Agent moderates: "Let's hear from John next"
+
+### 3. Latency Concerns
+**Challenge:** More participants = more complexity = potential latency
+
+**Solutions:**
+- Limit group size (max 5-8 people)
+- Optimize speaker detection
+- Use faster LLM responses for turn-taking decisions
+- Pre-load participant information
+
+### 4. Conversation Quality
+**Challenge:** Group calls are harder for AI to moderate naturally
+
+**Solutions:**
+- Strong system prompts with clear roles
+- Agent as "facilitator" not "participant"
+- Structured agenda with clear segments
+- Time boxing each topic
+
+## Implementation Steps
+
+### Day 1: Multi-Participant Support
+1. [ ] Modify agent to accept multiple SIP participants
+2. [ ] Implement basic speaker tracking
+3. [ ] Test with 2-3 participants
+4. [ ] Add participant database table
+
+### Day 2: Enhanced Agent Logic
+1. [ ] Implement speaker identification
+2. [ ] Add turn-taking prompts
+3. [ ] Test conversation flow
+4. [ ] Add name-based addressing
+
+### Day 3: UI & Polish
+1. [ ] Build group call viewer component
+2. [ ] Add participant metrics display
+3. [ ] Test end-to-end with real group
+4. [ ] Documentation and best practices
+
+## Success Criteria
+
+- [ ] Agent can handle 3-5 participants successfully
+- [ ] Each participant gets fair speaking time
+- [ ] Agent addresses people by name correctly
+- [ ] Transcript shows who said what
+- [ ] Conversation stays organized and on-topic
+- [ ] Call quality remains high (no audio issues)
+- [ ] Latency stays under 3 seconds per response
+- [ ] Group calls complete successfully
+
+## Known Limitations
+
+- Maximum 8 participants (LiveKit/SIP trunk limits)
+- Works best with structured agendas
+- Not ideal for free-form discussions
+- Speaker identification may not be 100% accurate
+- Requires good audio quality from all participants
+
+## Alternative: Sequential Calls
+
+**Note:** For many use cases, calling people sequentially (one after another) may be simpler and more reliable than true group calls. Consider this approach first!
 
 ---
 
