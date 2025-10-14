@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Agent Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Voice Agent Dashboard</h1>
+            <p class="subtitle">Make automated voice calls with AI</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('personal')">Personal Message Call</button>
+            <button class="tab-btn" onclick="showTab('facility')">Facility Test Call</button>
+            <button class="tab-btn" onclick="showTab('csv')">Bulk Upload (CSV)</button>
+        </div>
+
+        <!-- Personal Message Call Form -->
+        <div id="personal-tab" class="tab-content active">
+            <div class="card">
+                <h2>Personal Message Call</h2>
+                <p>Send a voice message to a friend or contact</p>
+
+                <form id="personal-form" class="call-form">
+                    <div class="form-group">
+                        <label for="personal-name">Friend's Name:</label>
+                        <input type="text" id="personal-name" name="name" required
+                               placeholder="John Doe">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="personal-phone">Phone Number:</label>
+                        <input type="tel" id="personal-phone" name="phone" required
+                               placeholder="+1234567890">
+                        <small>Include country code (e.g., +1 for US)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="personal-message">Your Message:</label>
+                        <textarea id="personal-message" name="message" required
+                                  rows="4" placeholder="Hey, I'm running 15 minutes late for dinner. See you soon!"></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Make Call Now</button>
+                </form>
+
+                <div id="personal-status" class="status-message"></div>
+            </div>
+        </div>
+
+        <!-- Facility Test Call Form -->
+        <div id="facility-tab" class="tab-content">
+            <div class="card">
+                <h2>Facility Test Call</h2>
+                <p>Test call to verify phone line is working</p>
+
+                <form id="facility-form" class="call-form">
+                    <div class="form-group">
+                        <label for="facility-name">Facility Name:</label>
+                        <input type="text" id="facility-name" name="name" required
+                               placeholder="Building A Security">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="facility-phone">Phone Number:</label>
+                        <input type="tel" id="facility-phone" name="phone" required
+                               placeholder="+1234567890">
+                        <small>Include country code (e.g., +1 for US)</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Make Test Call</button>
+                </form>
+
+                <div id="facility-status" class="status-message"></div>
+            </div>
+        </div>
+
+        <!-- CSV Bulk Upload Form -->
+        <div id="csv-tab" class="tab-content">
+            <div class="card">
+                <h2>Bulk Upload Contacts (CSV)</h2>
+                <p>Upload a CSV file to import multiple contacts at once</p>
+
+                <div class="csv-instructions">
+                    <h3>CSV Format Requirements:</h3>
+                    <ul>
+                        <li><strong>Required columns:</strong> name, phone</li>
+                        <li><strong>Optional columns:</strong> email, contact_type, notes</li>
+                        <li><strong>Phone format:</strong> Include country code (e.g., +1234567890)</li>
+                    </ul>
+                    <p><strong>Example CSV:</strong></p>
+                    <pre>name,phone,email,contact_type,notes
+John Doe,+1234567890,john@example.com,friend,Birthday next week
+Jane Smith,+61411111111,jane@example.com,facility,Building A
+Mike Johnson,+14692072939,mike@example.com,friend,Team member</pre>
+                </div>
+
+                <form id="csv-form" class="call-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="csv-file">Select CSV File:</label>
+                        <input type="file" id="csv-file" name="file" accept=".csv" required>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Upload Contacts</button>
+                </form>
+
+                <div id="csv-status" class="status-message"></div>
+            </div>
+        </div>
+
+        <!-- Recent Calls -->
+        <div class="card">
+            <h2>Recent Calls</h2>
+            <div id="recent-calls">
+                <div class="loading">Loading calls...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
