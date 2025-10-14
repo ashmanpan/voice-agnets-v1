@@ -3,6 +3,11 @@ livekit>=0.18.0
 livekit-agents>=0.10.0
 livekit-plugins-openai>=0.8.0
 livekit-plugins-silero>=0.7.0
+livekit-plugins-deepgram>=0.6.0
+
+# Database for transcript storage
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
 
 # Environment and utilities
 python-dotenv>=1.0.0

@@ -35,6 +35,79 @@ from daily_report import DailyReportGenerator
 
 app = FastAPI(title="Voice Agent System")
 
+
+# ========================
+# LiveKit Call Initiation (Default for all calls)
+# ========================
+
+async def initiate_livekit_call(
+    db: Session,
+    call_id: int,
+    phone_number: str,
+    contact_name: str,
+    custom_greeting: str = None,
+    caller_name: str = None,
+    system_prompt: str = None,
+    max_turns: int = 8
+):
+    """
+    Initiate a LiveKit call (1-3 second latency)
+    This is now the default for ALL calls.
+    """
+    import json
+    from livekit import api as livekit_api
+
+    try:
+        lk_api = livekit_api.LiveKitAPI(
+            url=os.getenv("LIVEKIT_URL"),
+            api_key=os.getenv("LIVEKIT_API_KEY"),
+            api_secret=os.getenv("LIVEKIT_API_SECRET"),
+        )
+
+        room_name = f"call-{call_id}"
+
+        # Prepare metadata for agent
+        metadata = {
+            "phone_number": phone_number,
+            "contact_name": contact_name,
+            "greeting": custom_greeting,
+            "call_id": call_id,
+            "caller_name": caller_name or "Krishnaji's CTO office",
+            "sip_trunk_id": os.getenv("LIVEKIT_SIP_TRUNK_ID"),
+            "system_prompt": system_prompt,
+            "max_turns": max_turns
+        }
+
+        # Dispatch agent to room
+        dispatch_response = await lk_api.agent_dispatch.create_dispatch(
+            livekit_api.CreateAgentDispatchRequest(
+                room=room_name,
+                agent_name="voice-assistant",
+                metadata=json.dumps(metadata)
+            )
+        )
+
+        print(f"✅ LiveKit call initiated: Room={room_name}, Phone={phone_number}, Call ID={call_id}")
+
+        # Update call record
+        call = db.query(Call).filter(Call.id == call_id).first()
+        if call:
+            call.livekit_room_name = room_name
+            call.status = "in-progress"
+            db.commit()
+
+        return room_name
+
+    except Exception as e:
+        print(f"❌ LiveKit call failed: {e}")
+        # Update call status to failed
+        call = db.query(Call).filter(Call.id == call_id).first()
+        if call:
+            call.status = "failed"
+            db.commit()
+        raise
+
+
 # Start scheduler on application startup
 @app.on_event("startup")
 async def startup_event():
@@ -79,9 +152,10 @@ async def create_personal_message_call(
     name: str = Form(...),
     phone: str = Form(...),
     message: str = Form(...),
+    caller_name: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    """Create a personal message call"""
+    """Create a personal message call using LiveKit (1-3s latency)"""
     # Create or get contact
     contact = db.query(Contact).filter(Contact.phone_number == phone).first()
     if not contact:
@@ -99,20 +173,29 @@ async def create_personal_message_call(
         contact_id=contact.id,
         call_type="personal_message",
         custom_message=message,
+        custom_greeting=message,  # Use message as greeting
+        caller_name=caller_name or "Krishnaji's CTO office",
         status="queued"
     )
     db.add(call)
     db.commit()
     db.refresh(call)
 
-    # Initiate call
+    # Initiate call with LiveKit (low latency)
     try:
-        call_sid = initiate_call(db, call.id)
+        room_name = await initiate_livekit_call(
+            db=db,
+            call_id=call.id,
+            phone_number=phone,
+            contact_name=name,
+            custom_greeting=message,
+            caller_name=caller_name
+        )
         return JSONResponse({
             "success": True,
             "call_id": call.id,
-            "call_sid": call_sid,
-            "message": "Call initiated successfully"
+            "room_name": room_name,
+            "message": "LiveKit call initiated (1-3s latency!)"
         })
     except Exception as e:
         return JSONResponse({
@@ -130,7 +213,7 @@ async def create_facility_test_call(
     custom_subject: str = Form(None),  # Optional: subject of call
     db: Session = Depends(get_db)
 ):
-    """Create a facility test call with optional custom parameters"""
+    """Create a facility test call using LiveKit (1-3s latency)"""
     # Create or get contact
     contact = db.query(Contact).filter(Contact.phone_number == phone).first()
     if not contact:
@@ -156,16 +239,123 @@ async def create_facility_test_call(
     db.commit()
     db.refresh(call)
 
-    # Initiate call
+    # Initiate call with LiveKit (low latency)
     try:
-        call_sid = initiate_call(db, call.id)
+        room_name = await initiate_livekit_call(
+            db=db,
+            call_id=call.id,
+            phone_number=phone,
+            contact_name=name,
+            custom_greeting=custom_greeting,
+            caller_name=caller_name
+        )
         return JSONResponse({
             "success": True,
             "call_id": call.id,
-            "call_sid": call_sid,
-            "message": "Test call initiated successfully"
+            "room_name": room_name,
+            "message": "LiveKit test call initiated (1-3s latency!)"
         })
     except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.post("/api/calls/livekit-call")
+async def create_livekit_call(
+    name: str = Form(...),
+    phone: str = Form(...),
+    custom_greeting: str = Form(None),
+    caller_name: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Make a call using LiveKit (1-3 second latency vs 15-20 seconds with Twilio)"""
+    import json
+    from livekit import api as livekit_api
+
+    # 1. Create or get contact
+    contact = db.query(Contact).filter(Contact.phone_number == phone).first()
+    if not contact:
+        contact = Contact(
+            name=name,
+            phone_number=phone,
+            contact_type="facility"
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+
+    # 2. Create call record
+    default_caller = caller_name or "Krishnaji's CTO office"
+    default_greeting = f"Hello! This is an AI assistant calling from {default_caller}. May I speak with {name}?"
+
+    call = Call(
+        contact_id=contact.id,
+        call_type="facility_test",
+        status="queued",
+        custom_greeting=custom_greeting or default_greeting,
+        caller_name=default_caller
+    )
+    db.add(call)
+    db.commit()
+    db.refresh(call)
+
+    # 3. Create LiveKit room and dispatch agent to make call
+    try:
+        lk_api = livekit_api.LiveKitAPI(
+            url=os.getenv("LIVEKIT_URL"),
+            api_key=os.getenv("LIVEKIT_API_KEY"),
+            api_secret=os.getenv("LIVEKIT_API_SECRET"),
+        )
+
+        room_name = f"call-{call.id}"
+
+        print(f"Dispatching LiveKit agent for {phone} in room {room_name}")
+
+        # Prepare metadata for agent (agent will create SIP participant)
+        metadata = {
+            "phone_number": phone,
+            "contact_name": name,
+            "greeting": custom_greeting or call.custom_greeting,
+            "call_id": call.id,
+            "caller_name": caller_name or "Krishnaji's CTO office",
+            "sip_trunk_id": os.getenv("LIVEKIT_SIP_TRUNK_ID")
+        }
+
+        # Dispatch agent to new room with metadata
+        # This creates the room and dispatches the agent in one call
+        dispatch_response = await lk_api.agent_dispatch.create_dispatch(
+            livekit_api.CreateAgentDispatchRequest(
+                room=room_name,
+                agent_name="voice-assistant",  # Must match agent_name in agent.py
+                metadata=json.dumps(metadata)
+            )
+        )
+
+        print(f"✅ Agent dispatched to room: {room_name}")
+        print(f"   Dispatch ID: {dispatch_response.id}")
+        print(f"   Agent will call: {phone}")
+
+        # Update call record
+        call.livekit_room_name = room_name
+        call.status = "in-progress"
+        db.commit()
+
+        print(f"✅ LiveKit call initiated: Room={room_name}, Phone={phone}")
+
+        return JSONResponse({
+            "success": True,
+            "call_id": call.id,
+            "room_name": room_name,
+            "dispatch_id": dispatch_response.id,
+            "message": "LiveKit call initiated (1-3s latency!)"
+        })
+
+    except Exception as e:
+        call.status = "failed"
+        db.commit()
+        print(f"❌ LiveKit call failed: {e}")
         return JSONResponse({
             "success": False,
             "error": str(e)

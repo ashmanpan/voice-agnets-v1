@@ -1,15 +1,19 @@
 """
 Call Scheduler Service
 Handles scheduled and recurring calls using APScheduler
+NOW USES LIVEKIT FOR ALL CALLS (1-3s latency!)
 """
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from models import Call, get_db
-from twilio_handler import initiate_call
+from models import Call, Contact, get_db
 import logging
+import asyncio
+import json
+import os
+from livekit import api as livekit_api
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +21,81 @@ logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler()
 
 
+def initiate_livekit_call_sync(
+    db: Session,
+    call_id: int,
+    phone_number: str,
+    contact_name: str,
+    custom_greeting: str = None,
+    caller_name: str = None,
+    system_prompt: str = None,
+    max_turns: int = 8
+):
+    """
+    Synchronous wrapper for LiveKit call initiation (for scheduler)
+    """
+    async def _async_initiate():
+        try:
+            lk_api = livekit_api.LiveKitAPI(
+                url=os.getenv("LIVEKIT_URL"),
+                api_key=os.getenv("LIVEKIT_API_KEY"),
+                api_secret=os.getenv("LIVEKIT_API_SECRET"),
+            )
+
+            room_name = f"call-{call_id}"
+
+            # Prepare metadata
+            metadata = {
+                "phone_number": phone_number,
+                "contact_name": contact_name,
+                "greeting": custom_greeting,
+                "call_id": call_id,
+                "caller_name": caller_name or "Krishnaji's CTO office",
+                "sip_trunk_id": os.getenv("LIVEKIT_SIP_TRUNK_ID"),
+                "system_prompt": system_prompt,
+                "max_turns": max_turns
+            }
+
+            # Dispatch agent
+            dispatch_response = await lk_api.agent_dispatch.create_dispatch(
+                livekit_api.CreateAgentDispatchRequest(
+                    room=room_name,
+                    agent_name="voice-assistant",
+                    metadata=json.dumps(metadata)
+                )
+            )
+
+            logger.info(f"✅ LiveKit scheduled call initiated: Room={room_name}, Phone={phone_number}")
+
+            # Update call record
+            call = db.query(Call).filter(Call.id == call_id).first()
+            if call:
+                call.livekit_room_name = room_name
+                call.status = "in-progress"
+                db.commit()
+
+            return room_name
+
+        except Exception as e:
+            logger.error(f"❌ LiveKit scheduled call failed: {e}")
+            call = db.query(Call).filter(Call.id == call_id).first()
+            if call:
+                call.status = "failed"
+                db.commit()
+            raise
+
+    # Run async function in event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(_async_initiate())
+    finally:
+        loop.close()
+
+
 def execute_scheduled_call(call_id: int):
     """
-    Execute a scheduled call
+    Execute a scheduled call using LiveKit (1-3s latency!)
 
     Args:
         call_id: ID of the call to execute
@@ -36,19 +112,31 @@ def execute_scheduled_call(call_id: int):
             logger.info(f"Skipping call {call_id} - recurring schedule is paused")
             return
 
-        logger.info(f"Executing scheduled call {call_id} to {call.contact.name}")
+        contact = db.query(Contact).filter(Contact.id == call.contact_id).first()
+        if not contact:
+            logger.error(f"Contact not found for call {call_id}")
+            return
+
+        logger.info(f"Executing scheduled LiveKit call {call_id} to {contact.name} ({contact.phone_number})")
 
         # Update status
         call.status = "queued"
         db.commit()
 
-        # Initiate the call
-        initiate_call(db, call_id)
+        # Initiate the call with LiveKit
+        initiate_livekit_call_sync(
+            db=db,
+            call_id=call_id,
+            phone_number=contact.phone_number,
+            contact_name=contact.name,
+            custom_greeting=call.custom_greeting,
+            caller_name=call.caller_name
+        )
 
-        logger.info(f"Successfully initiated scheduled call {call_id}")
+        logger.info(f"✅ Successfully initiated scheduled LiveKit call {call_id}")
 
     except Exception as e:
-        logger.error(f"Error executing scheduled call {call_id}: {str(e)}")
+        logger.error(f"❌ Error executing scheduled call {call_id}: {str(e)}")
     finally:
         db.close()
 
