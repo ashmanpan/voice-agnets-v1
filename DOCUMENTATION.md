@@ -109,6 +109,8 @@ An AI-powered voice agent system that makes automated phone calls with **ultra-l
 - **calls**: Call records with metadata
 - **transcript_segments**: Real-time conversation transcripts
 - **call_analysis**: AI-generated insights and analytics
+- **tasks**: Proactive tasks assigned TO contacts (Type 1 actions)
+- **action_items**: Reactive actions extracted FROM conversations (Type 2 actions)
 
 #### 4. External Services
 - **LiveKit Cloud**: WebRTC infrastructure for ultra-low latency
@@ -209,6 +211,34 @@ An AI-powered voice agent system that makes automated phone calls with **ultra-l
 - View recent calls
 - Call details with transcripts
 - Contact management
+- Status: ✅ **WORKING**
+
+#### 14. **Dual Action System** ⭐ NEW (DROP 1)
+Two distinct action tracking workflows:
+
+**Type 1: Proactive Tasks** (You assign → Agent calls → Collects response)
+- Assign tasks to contacts
+- Agent calls to explain task and collect response
+- Questions to ask (customizable)
+- Response recording with sentiment
+- Task completion tracking
+- Example: "Call John to remind him about the meeting tomorrow"
+- Status: ✅ **WORKING**
+
+**Type 2: Reactive Actions** (Auto-extracted from conversations)
+- AI automatically extracts action items from call transcripts
+- Identifies: requests, complaints, follow-ups
+- Smart priority scoring based on sentiment
+- Auto-generates due dates
+- Example: User says "Can you check my account balance?" → Creates action item
+- Status: ✅ **WORKING**
+
+#### 15. **Auto-Analysis on Call Completion** ⚡ NEW (DROP 1)
+- Automatic AI analysis when call ends
+- Background processing (zero impact on call latency!)
+- Auto-creates reactive action items (Type 2)
+- Smart urgency scoring based on sentiment
+- Runs in separate thread (non-blocking)
 - Status: ✅ **WORKING**
 
 ### 🔄 Feature Parity Matrix
@@ -336,6 +366,8 @@ An AI-powered voice agent system that makes automated phone calls with **ultra-l
    - `calls` (with `livekit_room_name` column) ✅
    - `transcript_segments` ✅
    - `call_analysis` ✅
+   - `tasks` (Type 1 proactive tasks) ✅ NEW
+   - `action_items` (Type 2 reactive actions) ✅ NEW
 
 5. **AI Analysis** - Groq-powered insights
    - Summary generation ✅
@@ -344,6 +376,16 @@ An AI-powered voice agent system that makes automated phone calls with **ultra-l
    - Complaint identification ✅
    - Sentiment analysis ✅
    - Call outcome classification ✅
+   - Auto-extraction to action_items table ✅ NEW
+   - Background processing (zero latency impact) ✅ NEW
+
+6. **DROP 1 Complete** - Dual Action System ⭐
+   - Tasks API (Type 1 proactive) ✅
+   - Actions API (Type 2 reactive) ✅
+   - Auto-analysis on call completion ✅
+   - Smart priority scoring ✅
+   - Background action extraction ✅
+   - LiveKit webhook handler ✅
 
 ### ⚠️ Known Issues
 
@@ -723,6 +765,133 @@ John Doe,+1234567890,john@example.com,friend,VIP contact
 Jane Smith,+0987654321,jane@example.com,facility,Emergency facility
 ```
 
+### Tasks & Actions API (DROP 1) ⭐
+
+#### POST `/api/tasks/assign`
+Assign a proactive task to a contact (Type 1)
+
+**Form Parameters:**
+- `contact_id`: Contact ID (required)
+- `title`: Short task title (required)
+- `description`: Full task description (required)
+- `task_type`: reminder/confirmation/survey/follow_up (default: reminder)
+- `agent_script`: What agent should say (optional)
+- `questions_to_ask`: JSON array of questions (optional)
+- `scheduled_time`: ISO datetime to schedule call (optional)
+- `priority`: high/medium/low (default: medium)
+- `created_by`: Who assigned this (default: "CTO Office")
+
+**Response:**
+```json
+{
+  "success": true,
+  "task_id": 1,
+  "call_id": 102,
+  "message": "Task assigned to John Doe and scheduled for 2025-10-16T10:00:00"
+}
+```
+
+#### GET `/api/tasks`
+List all proactive tasks with optional filters
+
+**Query Parameters:**
+- `status`: pending/scheduled/in_progress/completed (optional)
+- `contact_id`: Filter by contact (optional)
+- `limit`: Max results (default: 50)
+
+**Response:**
+```json
+{
+  "success": true,
+  "tasks": [
+    {
+      "id": 1,
+      "contact_id": 5,
+      "contact_name": "John Doe",
+      "contact_phone": "+1234567890",
+      "title": "Meeting reminder",
+      "description": "Remind about tomorrow's meeting",
+      "task_type": "reminder",
+      "status": "scheduled",
+      "priority": "high",
+      "scheduled_time": "2025-10-16T10:00:00",
+      "created_at": "2025-10-15T12:00:00",
+      "created_by": "CTO Office",
+      "call_attempts": 0,
+      "max_attempts": 3,
+      "contact_response": null,
+      "task_completed": false
+    }
+  ],
+  "count": 1
+}
+```
+
+#### GET `/api/tasks/{task_id}`
+Get detailed information about a specific task
+
+#### PATCH `/api/tasks/{task_id}`
+Update task status or notes
+
+**Form Parameters:**
+- `status`: New status (optional)
+- `notes`: Additional notes (optional)
+
+#### GET `/api/actions`
+List all reactive action items extracted from conversations (Type 2)
+
+**Query Parameters:**
+- `status`: pending/in_progress/completed (optional)
+- `action_type`: request/complaint/follow_up/question (optional)
+- `contact_id`: Filter by contact (optional)
+- `limit`: Max results (default: 50)
+
+**Response:**
+```json
+{
+  "success": true,
+  "actions": [
+    {
+      "id": 1,
+      "call_id": 101,
+      "contact_id": 5,
+      "contact_name": "John Doe",
+      "contact_phone": "+1234567890",
+      "action_type": "request",
+      "description": "User requested account balance check",
+      "priority": "high",
+      "status": "pending",
+      "urgency_score": 85,
+      "assigned_to": "CTO Office",
+      "created_at": "2025-10-15T14:30:00",
+      "due_date": "2025-10-17T14:30:00",
+      "source_text": "Can you check my account balance?"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### GET `/api/actions/{action_id}`
+Get detailed information about a specific action item
+
+#### PATCH `/api/actions/{action_id}`
+Update action status, notes, or assignment
+
+**Form Parameters:**
+- `status`: New status (optional)
+- `notes`: Additional notes (optional)
+- `assigned_to`: Reassign to someone (optional)
+
+#### POST `/livekit/webhook`
+LiveKit webhook handler for call events (internal)
+
+**Features:**
+- Detects call completion (`room_finished` event)
+- Updates call status in database
+- Triggers background AI analysis (zero latency impact!)
+- Auto-creates reactive action items
+
 ---
 
 ## Troubleshooting
@@ -775,6 +944,7 @@ For issues or questions:
 
 ---
 
-**Last Updated:** 2025-10-15
-**Current Version:** v5 (LiveKit Agent with Fixed Transcripts)
-**Status:** Production-ready, needs final testing
+**Last Updated:** 2025-10-15 (DROP 1 Complete)
+**Current Version:** v5 + DROP 1 (Dual Action System)
+**Status:** Production-ready
+**Latest Changes:** Added dual action system, auto-analysis, smart action extraction

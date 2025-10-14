@@ -1,11 +1,13 @@
 """
 Call Analysis Service - Analyzes call transcripts using AI
+Enhanced with auto-extraction of reactive action items (Type 2)
 """
 import json
 from groq import Groq
 import os
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from models import Call, CallAnalysis, TranscriptSegment
+from models import Call, CallAnalysis, TranscriptSegment, ActionItem, Contact
 
 
 class CallAnalyzer:
@@ -60,7 +62,11 @@ class CallAnalyzer:
             db.add(analysis)
             db.commit()
             db.refresh(analysis)
-            return analysis
+
+        # AUTO-EXTRACT: Create reactive action items (Type 2)
+        self._create_action_items(call, analysis_data, db)
+
+        return analysis if existing else db.query(CallAnalysis).filter(CallAnalysis.call_id == call.id).first()
 
     def _build_conversation_text(self, segments):
         """Build a readable conversation from transcript segments"""
@@ -69,6 +75,79 @@ class CallAnalyzer:
             speaker_label = "Agent" if seg.speaker == "agent" else "User"
             lines.append(f"{speaker_label}: {seg.text}")
         return "\n".join(lines)
+
+    def _create_action_items(self, call: Call, analysis_data: dict, db: Session):
+        """
+        Create ActionItem records (Type 2) from extracted data
+        Auto-generates reactive action items from conversation analysis
+        """
+        contact = db.query(Contact).filter(Contact.id == call.contact_id).first()
+        if not contact:
+            return
+
+        # Determine which items to create action items for
+        items_to_track = []
+
+        # Add requests
+        for request in analysis_data.get('requests', []):
+            items_to_track.append({
+                'type': 'request',
+                'description': request,
+                'priority': 'high',
+                'urgency_score': 70
+            })
+
+        # Add complaints (highest priority)
+        for complaint in analysis_data.get('complaints', []):
+            items_to_track.append({
+                'type': 'complaint',
+                'description': complaint,
+                'priority': 'high',
+                'urgency_score': 85
+            })
+
+        # Add action items if they require follow-up
+        for action in analysis_data.get('action_items', []):
+            # Only create action items for user-requested actions
+            if any(keyword in action.lower() for keyword in ['need', 'want', 'could', 'please', 'help', 'fix', 'check']):
+                items_to_track.append({
+                    'type': 'follow_up',
+                    'description': action,
+                    'priority': 'medium',
+                    'urgency_score': 60
+                })
+
+        # Adjust urgency based on sentiment
+        sentiment = analysis_data.get('sentiment', 'neutral')
+        sentiment_boost = {
+            'negative': 20,
+            'neutral': 0,
+            'positive': -10
+        }
+        boost = sentiment_boost.get(sentiment, 0)
+
+        # Create action items
+        for item in items_to_track:
+            # Calculate due date (high priority = 2 days, medium = 5 days, low = 7 days)
+            due_days = {'high': 2, 'medium': 5, 'low': 7}
+            due_date = datetime.utcnow() + timedelta(days=due_days.get(item['priority'], 5))
+
+            action_item = ActionItem(
+                call_id=call.id,
+                contact_id=call.contact_id,
+                action_type=item['type'],
+                description=item['description'],
+                priority=item['priority'],
+                status='pending',
+                urgency_score=min(100, item['urgency_score'] + boost),
+                assigned_to='CTO Office',
+                due_date=due_date,
+                source_text=item['description'][:500]  # Store first 500 chars as source
+            )
+            db.add(action_item)
+
+        db.commit()
+        print(f"✅ Created {len(items_to_track)} action items from call {call.id}")
 
     def _ai_analyze(self, conversation: str) -> dict:
         """Use AI to analyze the conversation"""
@@ -81,10 +160,15 @@ Conversation:
 Provide your analysis as a JSON object with these fields:
 - summary: A brief 1-2 sentence summary of the call
 - action_items: Array of action items mentioned (things that need to be done)
-- requests: Array of specific requests made by the user
-- complaints: Array of complaints or issues raised
+- requests: Array of specific requests made by the user (things they asked for)
+- complaints: Array of complaints or issues raised by the user
 - sentiment: Overall sentiment (positive/neutral/negative)
 - call_outcome: The outcome (answered/voicemail/no_answer/busy)
+
+IMPORTANT:
+- "requests" = things the user explicitly asked for or requested
+- "complaints" = problems, issues, or dissatisfaction expressed by the user
+- "action_items" = general things that need to be done
 
 Return ONLY valid JSON, no other text.
 """

@@ -13,7 +13,7 @@ import os
 import csv
 import io
 
-from models import get_db, Contact, Call, TranscriptSegment, CallAnalysis
+from models import get_db, Contact, Call, TranscriptSegment, CallAnalysis, Task, ActionItem
 from twilio_handler import (
     initiate_call,
     generate_twiml_response,
@@ -1210,6 +1210,455 @@ async def analyze_all_calls(db: Session = Depends(get_db)):
             "success": False,
             "error": str(e)
         }, status_code=500)
+
+
+# ========================
+# Tasks & Actions API
+# ========================
+
+@app.post("/api/tasks/assign")
+async def assign_task(
+    contact_id: int = Form(...),
+    title: str = Form(...),
+    description: str = Form(...),
+    task_type: str = Form("reminder"),  # reminder/confirmation/survey/follow_up
+    agent_script: str = Form(None),
+    questions_to_ask: str = Form(None),  # JSON array
+    scheduled_time: str = Form(None),  # ISO datetime
+    priority: str = Form("medium"),
+    created_by: str = Form("CTO Office"),
+    db: Session = Depends(get_db)
+):
+    """
+    Type 1: Assign a proactive task to a contact
+    Agent will call the contact to explain the task and collect response
+    """
+    from models import Task
+    try:
+        # Validate contact exists
+        contact = db.query(Contact).filter(Contact.id == contact_id).first()
+        if not contact:
+            return JSONResponse({
+                "success": False,
+                "error": "Contact not found"
+            }, status_code=404)
+
+        # Parse scheduled time if provided
+        scheduled_datetime = None
+        if scheduled_time:
+            scheduled_datetime = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+
+        # Create task
+        task = Task(
+            contact_id=contact_id,
+            title=title,
+            description=description,
+            task_type=task_type,
+            agent_script=agent_script,
+            questions_to_ask=questions_to_ask,
+            scheduled_time=scheduled_datetime,
+            priority=priority,
+            created_by=created_by,
+            status="pending"
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+        # If scheduled, create the call and schedule it
+        if scheduled_datetime:
+            call = Call(
+                contact_id=contact_id,
+                call_type="task_delivery",
+                status="scheduled",
+                caller_name="Krishnaji's CTO office",
+                custom_greeting=agent_script or f"Hello, this is a call regarding: {title}",
+                is_scheduled=True,
+                scheduled_time=scheduled_datetime
+            )
+            db.add(call)
+            db.commit()
+            db.refresh(call)
+
+            # Link task to call
+            task.assigned_call_id = call.id
+            task.status = "scheduled"
+            db.commit()
+
+            # Schedule the call
+            schedule_one_time_call(call.id, scheduled_datetime)
+
+        return JSONResponse({
+            "success": True,
+            "task_id": task.id,
+            "call_id": task.assigned_call_id if task.assigned_call_id else None,
+            "message": f"Task assigned to {contact.name}" +
+                      (f" and scheduled for {scheduled_datetime.isoformat()}" if scheduled_datetime else "")
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.get("/api/tasks")
+async def list_tasks(
+    status: Optional[str] = None,
+    contact_id: Optional[int] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    List all proactive tasks (Type 1)
+    Filter by status and/or contact
+    """
+    from models import Task
+    try:
+        query = db.query(Task).join(Contact)
+
+        if status:
+            query = query.filter(Task.status == status)
+        if contact_id:
+            query = query.filter(Task.contact_id == contact_id)
+
+        tasks = query.order_by(Task.created_at.desc()).limit(limit).all()
+
+        return JSONResponse({
+            "success": True,
+            "tasks": [
+                {
+                    "id": task.id,
+                    "contact_id": task.contact_id,
+                    "contact_name": task.contact.name,
+                    "contact_phone": task.contact.phone_number,
+                    "title": task.title,
+                    "description": task.description,
+                    "task_type": task.task_type,
+                    "status": task.status,
+                    "priority": task.priority,
+                    "scheduled_time": task.scheduled_time.isoformat() if task.scheduled_time else None,
+                    "created_at": task.created_at.isoformat(),
+                    "created_by": task.created_by,
+                    "call_attempts": task.call_attempts,
+                    "max_attempts": task.max_attempts,
+                    "contact_response": task.contact_response,
+                    "task_completed": task.task_completed
+                }
+                for task in tasks
+            ],
+            "count": len(tasks)
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: int, db: Session = Depends(get_db)):
+    """Get specific task details"""
+    from models import Task
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return JSONResponse({
+                "success": False,
+                "error": "Task not found"
+            }, status_code=404)
+
+        import json
+        return JSONResponse({
+            "success": True,
+            "task": {
+                "id": task.id,
+                "contact": {
+                    "id": task.contact.id,
+                    "name": task.contact.name,
+                    "phone": task.contact.phone_number
+                },
+                "title": task.title,
+                "description": task.description,
+                "task_type": task.task_type,
+                "agent_script": task.agent_script,
+                "questions_to_ask": json.loads(task.questions_to_ask) if task.questions_to_ask else [],
+                "status": task.status,
+                "priority": task.priority,
+                "scheduled_time": task.scheduled_time.isoformat() if task.scheduled_time else None,
+                "created_at": task.created_at.isoformat(),
+                "created_by": task.created_by,
+                "call_attempts": task.call_attempts,
+                "max_attempts": task.max_attempts,
+                "contact_response": task.contact_response,
+                "response_sentiment": task.response_sentiment,
+                "task_completed": task.task_completed,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+                "notes": task.notes
+            }
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.patch("/api/tasks/{task_id}")
+async def update_task(
+    task_id: int,
+    status: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Update task status or notes"""
+    from models import Task
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return JSONResponse({
+                "success": False,
+                "error": "Task not found"
+            }, status_code=404)
+
+        if status:
+            task.status = status
+            if status == "completed":
+                task.completed_at = datetime.utcnow()
+
+        if notes:
+            task.notes = notes
+
+        db.commit()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Task updated successfully"
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.get("/api/actions")
+async def list_actions(
+    status: Optional[str] = None,
+    action_type: Optional[str] = None,
+    contact_id: Optional[int] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    List all reactive action items (Type 2)
+    These are extracted from call conversations
+    """
+    from models import ActionItem
+    try:
+        query = db.query(ActionItem).join(Contact)
+
+        if status:
+            query = query.filter(ActionItem.status == status)
+        if action_type:
+            query = query.filter(ActionItem.action_type == action_type)
+        if contact_id:
+            query = query.filter(ActionItem.contact_id == contact_id)
+
+        actions = query.order_by(
+            ActionItem.urgency_score.desc(),
+            ActionItem.created_at.desc()
+        ).limit(limit).all()
+
+        return JSONResponse({
+            "success": True,
+            "actions": [
+                {
+                    "id": action.id,
+                    "call_id": action.call_id,
+                    "contact_id": action.contact_id,
+                    "contact_name": action.contact.name,
+                    "contact_phone": action.contact.phone_number,
+                    "action_type": action.action_type,
+                    "description": action.description,
+                    "priority": action.priority,
+                    "status": action.status,
+                    "urgency_score": action.urgency_score,
+                    "assigned_to": action.assigned_to,
+                    "created_at": action.created_at.isoformat(),
+                    "due_date": action.due_date.isoformat() if action.due_date else None,
+                    "source_text": action.source_text
+                }
+                for action in actions
+            ],
+            "count": len(actions)
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.get("/api/actions/{action_id}")
+async def get_action(action_id: int, db: Session = Depends(get_db)):
+    """Get specific action item details"""
+    from models import ActionItem
+    try:
+        action = db.query(ActionItem).filter(ActionItem.id == action_id).first()
+        if not action:
+            return JSONResponse({
+                "success": False,
+                "error": "Action not found"
+            }, status_code=404)
+
+        return JSONResponse({
+            "success": True,
+            "action": {
+                "id": action.id,
+                "call_id": action.call_id,
+                "contact": {
+                    "id": action.contact.id,
+                    "name": action.contact.name,
+                    "phone": action.contact.phone_number
+                },
+                "action_type": action.action_type,
+                "description": action.description,
+                "priority": action.priority,
+                "status": action.status,
+                "urgency_score": action.urgency_score,
+                "assigned_to": action.assigned_to,
+                "created_at": action.created_at.isoformat(),
+                "due_date": action.due_date.isoformat() if action.due_date else None,
+                "completed_at": action.completed_at.isoformat() if action.completed_at else None,
+                "notes": action.notes,
+                "source_text": action.source_text
+            }
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+@app.patch("/api/actions/{action_id}")
+async def update_action(
+    action_id: int,
+    status: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    assigned_to: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Update action item status, notes, or assignment"""
+    from models import ActionItem
+    try:
+        action = db.query(ActionItem).filter(ActionItem.id == action_id).first()
+        if not action:
+            return JSONResponse({
+                "success": False,
+                "error": "Action not found"
+            }, status_code=404)
+
+        if status:
+            action.status = status
+            if status == "completed":
+                action.completed_at = datetime.utcnow()
+
+        if notes:
+            action.notes = notes
+
+        if assigned_to:
+            action.assigned_to = assigned_to
+
+        db.commit()
+
+        return JSONResponse({
+            "success": True,
+            "message": "Action updated successfully"
+        })
+
+    except Exception as e:
+        return JSONResponse({
+            "success": False,
+            "error": str(e)
+        }, status_code=500)
+
+
+# ========================
+# LiveKit Webhooks
+# ========================
+
+@app.post("/livekit/webhook")
+async def livekit_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Handle LiveKit webhooks for call events
+    CRITICAL: Analysis runs AFTER call ends to preserve zero-latency performance
+    """
+    import threading
+
+    try:
+        data = await request.json()
+        event_type = data.get("event")
+
+        # Only process room_finished events (when call ends)
+        if event_type == "room_finished":
+            room_name = data.get("room", {}).get("name", "")
+
+            # Extract call_id from room name (format: call-123)
+            if room_name.startswith("call-"):
+                call_id = int(room_name.split("-")[1])
+
+                # Update call status
+                call = db.query(Call).filter(Call.id == call_id).first()
+                if call:
+                    call.status = "completed"
+                    call.ended_at = datetime.utcnow()
+
+                    # Calculate duration if started_at exists
+                    if call.started_at:
+                        duration = (call.ended_at - call.started_at).total_seconds()
+                        call.duration = int(duration)
+
+                    db.commit()
+
+                    print(f"✅ Call {call_id} completed - starting analysis in background")
+
+                    # BACKGROUND ANALYSIS - Zero impact on call latency
+                    # Run analysis in separate thread to not block webhook response
+                    def analyze_in_background():
+                        from models import SessionLocal
+                        from call_analyzer import CallAnalyzer
+
+                        # Create new database session for background thread
+                        bg_db = SessionLocal()
+                        try:
+                            bg_call = bg_db.query(Call).filter(Call.id == call_id).first()
+                            if bg_call:
+                                analyzer = CallAnalyzer()
+                                analyzer.analyze_call(bg_call, bg_db)
+                                print(f"✅ Background analysis completed for call {call_id}")
+                        except Exception as e:
+                            print(f"⚠️  Background analysis failed for call {call_id}: {e}")
+                        finally:
+                            bg_db.close()
+
+                    # Start analysis thread (non-blocking)
+                    analysis_thread = threading.Thread(target=analyze_in_background)
+                    analysis_thread.daemon = True
+                    analysis_thread.start()
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        print(f"⚠️  LiveKit webhook error: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 # ========================

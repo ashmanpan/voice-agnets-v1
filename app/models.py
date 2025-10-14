@@ -32,6 +32,7 @@ class Call(Base):
 
     # Call details
     twilio_call_sid = Column(String(100), unique=True)
+    livekit_room_name = Column(String(100))  # LiveKit room name for low-latency calls
     status = Column(String(20), default="queued")
     direction = Column(String(10), default="outbound")
 
@@ -108,6 +109,90 @@ class CallAnalysis(Base):
     analyzed_at = Column(DateTime, default=datetime.utcnow)
 
     call = relationship("Call", back_populates="analysis")
+
+
+class ActionItem(Base):
+    """
+    Type 2: Reactive actions extracted from conversations
+    These are things the user asked for / complained about / requested
+    """
+    __tablename__ = "action_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    call_id = Column(Integer, ForeignKey("calls.id"))
+    contact_id = Column(Integer, ForeignKey("contacts.id"))
+
+    # Action details
+    action_type = Column(String(20))  # 'question', 'request', 'complaint', 'follow_up'
+    description = Column(Text, nullable=False)
+    priority = Column(String(10), default='medium')  # 'high', 'medium', 'low'
+
+    # Status tracking
+    status = Column(String(20), default='pending')  # 'pending', 'in_progress', 'completed', 'cancelled'
+    assigned_to = Column(String(100))  # Who should handle this (e.g., "CTO Office")
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    due_date = Column(DateTime)
+    completed_at = Column(DateTime)
+
+    # Additional context
+    notes = Column(Text)  # Additional notes or updates
+    urgency_score = Column(Integer, default=50)  # 0-100 score for sorting
+    source_text = Column(Text)  # Original text from transcript that triggered this action
+
+    # Relationships
+    call = relationship("Call")
+    contact = relationship("Contact")
+
+
+class Task(Base):
+    """
+    Type 1: Proactive tasks assigned TO contacts
+    Agent will call the contact to explain task and collect response
+    """
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contact_id = Column(Integer, ForeignKey("contacts.id"), nullable=False)
+    assigned_call_id = Column(Integer, ForeignKey("calls.id"))  # The call that will deliver this task
+
+    # Task details
+    title = Column(String(200), nullable=False)  # Short title
+    description = Column(Text, nullable=False)  # Full task description
+    task_type = Column(String(50), default='reminder')  # 'reminder', 'confirmation', 'survey', 'follow_up'
+
+    # What agent should say/ask
+    agent_script = Column(Text)  # What agent says to contact
+    questions_to_ask = Column(Text)  # JSON array of questions agent should ask
+    collect_response = Column(Boolean, default=True)  # Should agent collect and record response?
+
+    # Status tracking
+    status = Column(String(20), default='pending')  # 'pending', 'scheduled', 'in_progress', 'completed', 'failed'
+    priority = Column(String(10), default='medium')
+
+    # Response collection
+    contact_response = Column(Text)  # What contact said in response
+    response_sentiment = Column(String(20))  # Sentiment of their response
+    task_completed = Column(Boolean, default=False)  # Did contact confirm/complete task?
+
+    # Scheduling
+    scheduled_time = Column(DateTime)  # When to make the call
+    call_attempts = Column(Integer, default=0)  # How many times we tried
+    max_attempts = Column(Integer, default=3)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(100))  # Who assigned this task
+    completed_at = Column(DateTime)
+    last_attempt_at = Column(DateTime)
+
+    # Additional notes
+    notes = Column(Text)
+
+    # Relationships
+    contact = relationship("Contact")
+    assigned_call = relationship("Call", foreign_keys=[assigned_call_id])
 
 
 def get_db():
