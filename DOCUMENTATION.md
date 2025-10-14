@@ -948,3 +948,422 @@ For issues or questions:
 **Current Version:** v5 + DROP 1 (Dual Action System)
 **Status:** Production-ready
 **Latest Changes:** Added dual action system, auto-analysis, smart action extraction
+
+---
+
+## Development Roadmap: DROP 2-4
+
+### DROP 2: Task Delivery System 📋
+
+**Goal:** Enable agent to deliver proactive tasks (Type 1) during calls
+
+**Components to Build:**
+
+1. **Task-Aware Agent Mode**
+   - Modify `livekit-agent/agent.py` to check for pending tasks
+   - Read task from database when call starts (if `call_type == "task_delivery"`)
+   - Add task context to system prompt
+
+2. **Enhanced System Prompt**
+   ```python
+   # Example task-aware prompt
+   system_prompt = f"""You are calling {contact_name} to discuss: {task.title}
+
+   Task Details: {task.description}
+
+   Your objectives:
+   1. Greet them professionally
+   2. Explain the task: {task.agent_script}
+   3. Ask these questions: {task.questions_to_ask}
+   4. Record their responses
+   5. Confirm their understanding
+   6. Thank them and end call
+
+   Be conversational but stay focused on the task."""
+   ```
+
+3. **Response Collection**
+   - Capture user responses during task delivery
+   - Extract key information from conversation
+   - Update `task.contact_response` field
+   - Analyze sentiment of response
+   - Mark task as completed or requiring follow-up
+
+4. **Database Updates**
+   - Update task status: pending → in_progress → completed
+   - Record contact response verbatim
+   - Save response sentiment
+   - Update `task_completed` flag
+   - Increment `call_attempts` counter
+
+5. **Retry Logic**
+   - If call fails (no answer, busy), reschedule
+   - Check `call_attempts < max_attempts`
+   - Automatic retry with exponential backoff
+   - Mark as "failed" after max attempts reached
+
+**Files to Modify:**
+- `livekit-agent/agent.py` - Add task reading logic
+- `app/main.py` - Link task assignment to call creation
+- `app/scheduler_service.py` - Add task-specific scheduling
+
+**Success Criteria:**
+- Agent can read task from database
+- Agent explains task clearly
+- Agent collects and records responses
+- Task status updates correctly
+- Retry logic works on failures
+
+---
+
+### DROP 3: Core UI (Dashboard, Contacts, Transcripts) 🎨
+
+**Goal:** Modern web interface for core functionality
+
+**Technology Stack:**
+- Frontend: React + TypeScript + Tailwind CSS
+- State Management: React Query (for API calls)
+- Routing: React Router
+- Icons: Lucide React
+- Build: Vite
+
+**Pages to Build:**
+
+#### 1. **Dashboard Page** (`/`)
+```
+┌──────────────────────────────────────────────┐
+│  Voice Agent Dashboard                    🔍 │
+├──────────────────────────────────────────────┤
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐       │
+│  │ Total   │ │ Today   │ │Success  │       │
+│  │ Calls   │ │ Calls   │ │ Rate    │       │
+│  │  1,234  │ │   45    │ │  87%    │       │
+│  └─────────┘ └─────────┘ └─────────┘       │
+├──────────────────────────────────────────────┤
+│  Recent Calls (Last 20)                      │
+│  ┌────────────────────────────────────────┐ │
+│  │ ID  Contact      Status    Duration    │ │
+│  │ 105 John Doe     completed  2m 34s    ││
+│  │ 104 Jane Smith   in-progress  -      ││
+│  │ 103 Bob Johnson  completed  1m 12s    ││
+│  └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Real-time call statistics
+- Last 20 calls with status
+- Quick action buttons (View, Analyze)
+- Auto-refresh every 5 seconds
+
+#### 2. **Contacts Page** (`/contacts`)
+```
+┌──────────────────────────────────────────────┐
+│  Contacts                        [+ Add New] │
+├──────────────────────────────────────────────┤
+│  Search: [___________]  Filter: [All Types▼]│
+├──────────────────────────────────────────────┤
+│  ┌────────────────────────────────────────┐ │
+│  │ Name         Phone          Type       │ │
+│  │ John Doe     +1234567890    Friend    ││
+│  │ Jane Smith   +0987654321    Facility  ││
+│  │ [View] [Call] [Assign Task]           ││
+│  └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Search by name/phone
+- Filter by contact type
+- CSV bulk upload
+- Quick actions: Call, Assign Task
+- Contact details modal
+
+#### 3. **Transcript Viewer** (`/calls/{id}/transcript`)
+```
+┌──────────────────────────────────────────────┐
+│  Call #105 - John Doe                   [✕] │
+├──────────────────────────────────────────────┤
+│  Status: completed  Duration: 2m 34s        │
+│  Sentiment: positive  Outcome: answered      │
+├──────────────────────────────────────────────┤
+│  Transcript:                                 │
+│  ┌────────────────────────────────────────┐ │
+│  │ 🤖 Agent: Hello, this is an AI        │ │
+│  │           assistant calling...         │ │
+│  │                                        │ │
+│  │ 👤 User: Hi, how can I help?          │ │
+│  │                                        │ │
+│  │ 🤖 Agent: I wanted to follow up...    │ │
+│  └────────────────────────────────────────┘ │
+├──────────────────────────────────────────────┤
+│  AI Analysis:                                │
+│  Summary: Friendly follow-up call...         │
+│  Actions: [View 2 extracted actions]         │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Full conversation transcript
+- Speaker identification (Agent/User)
+- Timestamp display
+- AI analysis summary
+- Link to extracted actions
+- Export transcript button
+
+**API Integration:**
+- `GET /api/calls` - List calls
+- `GET /api/calls/{id}` - Call details + transcript
+- `GET /api/calls/{id}/analysis` - AI analysis
+- `POST /api/contacts/upload-csv` - CSV upload
+- `GET /api/contacts` - List contacts
+
+**Components to Build:**
+```
+src/
+├── components/
+│   ├── Dashboard.tsx
+│   ├── CallTable.tsx
+│   ├── CallStats.tsx
+│   ├── ContactList.tsx
+│   ├── ContactForm.tsx
+│   ├── TranscriptViewer.tsx
+│   └── Navbar.tsx
+├── hooks/
+│   ├── useCalls.ts
+│   ├── useContacts.ts
+│   └── useAnalysis.ts
+├── api/
+│   └── client.ts
+└── App.tsx
+```
+
+---
+
+### DROP 4: Advanced UI (Actions, Schedule, Reports) 📊
+
+**Goal:** Complete management interface for tasks, actions, and analytics
+
+**Pages to Build:**
+
+#### 1. **Actions Dashboard** (`/actions`)
+```
+┌──────────────────────────────────────────────┐
+│  Action Items            [Pending▼] [High▼] │
+├──────────────────────────────────────────────┤
+│  📋 Type 1: Proactive Tasks (You Assigned)   │
+│  ┌────────────────────────────────────────┐ │
+│  │ Meeting Reminder - John Doe   [High]  │ │
+│  │ Scheduled: Tomorrow 10am               │ │
+│  │ Status: scheduled  Attempts: 0/3      ││
+│  │ [View] [Reschedule] [Cancel]          ││
+│  └────────────────────────────────────────┘ │
+├──────────────────────────────────────────────┤
+│  🤖 Type 2: Reactive (Auto-Extracted)        │
+│  ┌────────────────────────────────────────┐ │
+│  │ Account balance check - Jane Smith    │ │
+│  │ Type: Request  Priority: High         ││
+│  │ Due: 2 days  Urgency: 85              ││
+│  │ [Mark Done] [Reassign] [Add Notes]    ││
+│  └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Separate tabs for Type 1 and Type 2 actions
+- Filter by status, priority, type
+- Sort by urgency score
+- Quick status updates
+- Bulk operations
+
+#### 2. **Task Assignment** (`/tasks/assign`)
+```
+┌──────────────────────────────────────────────┐
+│  Assign Proactive Task                       │
+├──────────────────────────────────────────────┤
+│  Contact: [Select Contact ▼]                │
+│  Title: [_____________________________]      │
+│  Type: [Reminder ▼]                         │
+│  Description:                                │
+│  [________________________________]          │
+│  [________________________________]          │
+│                                              │
+│  Agent Script (what agent should say):       │
+│  [________________________________]          │
+│                                              │
+│  Questions to Ask:                           │
+│  1. [_____________________________] [+ Add] │
+│                                              │
+│  Schedule Call:                              │
+│  Date: [__________] Time: [_____]           │
+│  Priority: [Medium ▼]                       │
+│                                              │
+│  [Cancel]              [Assign Task →]      │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Contact selection dropdown
+- Task type selection
+- Custom agent script editor
+- Dynamic question list (add/remove)
+- Optional call scheduling
+- Preview before sending
+
+#### 3. **Schedule Manager** (`/schedule`)
+```
+┌──────────────────────────────────────────────┐
+│  Call Schedule                    [+ New]    │
+├──────────────────────────────────────────────┤
+│  One-Time Scheduled Calls                    │
+│  ┌────────────────────────────────────────┐ │
+│  │ Tomorrow 10:00 - John Doe (Meeting)   │ │
+│  │ [Reschedule] [Cancel]                 ││
+│  └────────────────────────────────────────┘ │
+├──────────────────────────────────────────────┤
+│  Recurring Calls                             │
+│  ┌────────────────────────────────────────┐ │
+│  │ Daily 9:00 AM - Morning Check-in      │ │
+│  │ Status: Active  Next: Tomorrow 9am    ││
+│  │ [Pause] [Edit] [Stop]                 ││
+│  ├────────────────────────────────────────┤ │
+│  │ Weekly Mon 5:00 PM - Weekly Update    │ │
+│  │ Status: Paused                        ││
+│  │ [Resume] [Edit] [Delete]              ││
+│  └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Calendar view of scheduled calls
+- Pause/resume recurring calls
+- Edit schedule times
+- Quick reschedule
+- Status indicators
+
+#### 4. **Reports & Analytics** (`/reports`)
+```
+┌──────────────────────────────────────────────┐
+│  Analytics Dashboard         [Last 7 Days▼] │
+├──────────────────────────────────────────────┤
+│  Call Volume Over Time                       │
+│  [📊 Line Chart]                            │
+├──────────────────────────────────────────────┤
+│  Success Rate by Type                        │
+│  Personal Messages: 92% ████████████░        │
+│  Facility Tests:    85% ██████████░░         │
+│  Task Delivery:     78% █████████░░░         │
+├──────────────────────────────────────────────┤
+│  Sentiment Distribution                      │
+│  Positive: 65% ███████████████░░░░░          │
+│  Neutral:  25% ██████░░░░░░░░░░░░░          │
+│  Negative: 10% ██░░░░░░░░░░░░░░░░          │
+├──────────────────────────────────────────────┤
+│  Top Action Types                            │
+│  1. Requests      45 items                   │
+│  2. Follow-ups    32 items                   │
+│  3. Complaints    18 items                   │
+└──────────────────────────────────────────────┘
+```
+
+**Features:**
+- Call volume charts (Chart.js or Recharts)
+- Success rate metrics
+- Sentiment analysis visualization
+- Action items breakdown
+- Export to PDF/CSV
+- Date range selector
+
+**API Integration:**
+- `GET /api/tasks` - List tasks
+- `POST /api/tasks/assign` - Create task
+- `GET /api/actions` - List actions
+- `PATCH /api/actions/{id}` - Update action
+- `GET /api/reports/daily` - Daily report
+- `GET /api/reports/summary` - Summary stats
+
+**Components to Build:**
+```
+src/
+├── components/
+│   ├── actions/
+│   │   ├── ActionsList.tsx
+│   │   ├── TasksList.tsx
+│   │   ├── TaskAssignForm.tsx
+│   │   └── ActionCard.tsx
+│   ├── schedule/
+│   │   ├── ScheduleCalendar.tsx
+│   │   ├── RecurringCallsList.tsx
+│   │   └── ScheduleForm.tsx
+│   └── reports/
+│       ├── CallVolumeChart.tsx
+│       ├── SentimentChart.tsx
+│       ├── SuccessRateCard.tsx
+│       └── ExportButton.tsx
+└── pages/
+    ├── ActionsPage.tsx
+    ├── SchedulePage.tsx
+    └── ReportsPage.tsx
+```
+
+---
+
+## Implementation Order & Timeline
+
+### DROP 2: Task Delivery System (2-3 days)
+**Priority:** HIGH - Core functionality for Type 1 tasks
+- Day 1: Modify agent.py for task awareness
+- Day 2: Response collection and database updates
+- Day 3: Testing and retry logic
+
+### DROP 3: Core UI (3-4 days)
+**Priority:** HIGH - Essential user interface
+- Day 1: Setup React project, Dashboard
+- Day 2: Contacts page with CSV upload
+- Day 3: Transcript viewer
+- Day 4: Testing and polish
+
+### DROP 4: Advanced UI (3-4 days)
+**Priority:** MEDIUM - Enhanced management features
+- Day 1: Actions dashboard (both types)
+- Day 2: Task assignment form
+- Day 3: Schedule manager
+- Day 4: Reports and analytics
+
+**Total Estimated Time:** 8-11 days
+
+---
+
+## Testing Checklist
+
+### DROP 2 Testing:
+- [ ] Agent reads task from database correctly
+- [ ] Agent delivers task message clearly
+- [ ] Agent asks all questions from task
+- [ ] User responses are captured
+- [ ] Task status updates (pending → in_progress → completed)
+- [ ] Retry logic works on call failure
+- [ ] Response sentiment is analyzed
+- [ ] Multiple tasks can be scheduled
+
+### DROP 3 Testing:
+- [ ] Dashboard loads and shows statistics
+- [ ] Recent calls display correctly
+- [ ] Contacts page search/filter works
+- [ ] CSV upload processes contacts
+- [ ] Transcript viewer displays conversation
+- [ ] AI analysis shows in transcript view
+- [ ] All API endpoints return correct data
+- [ ] UI is responsive on mobile
+
+### DROP 4 Testing:
+- [ ] Actions list shows both task types
+- [ ] Filters and sorting work correctly
+- [ ] Task assignment form validates input
+- [ ] Schedule manager shows upcoming calls
+- [ ] Pause/resume recurring calls works
+- [ ] Reports generate correct statistics
+- [ ] Charts render properly
+- [ ] Export functionality works
+
+---
