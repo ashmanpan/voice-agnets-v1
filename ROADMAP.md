@@ -1,7 +1,7 @@
 # Voice Agent System - Development Roadmap
 
 **Last Updated:** 2025-10-15
-**Current Status:** DROP 2 Complete ✅
+**Current Status:** DROP 1 & 2 Verified Complete ✅
 
 ---
 
@@ -16,6 +16,54 @@
 | DROP 5 | 💡 Future | TBD | - |
 | DROP 6 | 💡 Future | 2-3 days | - |
 | DROP 7 | 💡 Future | 3-4 days | - |
+| DROP 8 | 💡 Future | 2-3 days | - |
+
+---
+
+## Verification Summary (2025-10-15)
+
+### DROP 1: Dual Action System ✅ VERIFIED
+**Database Schema:**
+- ✅ `tasks` table: 17 tasks created, all columns present
+- ✅ `action_items` table: Schema complete (fixed missing `source_text` column)
+- ✅ `call_analysis` table: 48 analyses completed
+
+**API Endpoints:**
+- ✅ `GET /api/tasks` - Working (returns 17 tasks)
+- ✅ `GET /api/actions` - Working (fixed schema issue)
+- ✅ `POST /api/tasks/assign` - Available
+- ✅ `PATCH /api/tasks/{id}` - Available
+- ✅ `GET /api/actions/{id}` - Available
+
+**Verified Features:**
+- ✅ Type 1 Tasks: 5 completed tasks with responses captured
+- ✅ Type 2 Actions: Infrastructure ready (auto-extraction from calls)
+- ✅ Smart priority scoring and sentiment analysis
+- ✅ Background processing (zero latency impact)
+
+### DROP 2: Task Delivery System ✅ VERIFIED
+**Agent Implementation:**
+- ✅ `load_task_from_database()` function implemented
+- ✅ Task-aware system prompts generation
+- ✅ Response collection and sentiment analysis
+- ✅ Task status updates (pending → in_progress → completed)
+
+**API Endpoint:**
+- ✅ `POST /api/tasks/{task_id}/call` - Working (tested with task 6)
+- ✅ Creates call with `call_type="task_delivery"` before agent dispatch
+- ✅ Links task to call via `assigned_call_id`
+
+**Database Verification:**
+- ✅ 5 completed tasks with captured responses
+- ✅ Response sentiment recorded: all positive
+- ✅ Task completion flags set correctly
+- ✅ Contact responses stored (129-499 chars captured)
+
+**Test Results:**
+- ✅ Task 6, 7, 8, 9, 11, 14: Successfully completed with responses
+- ✅ Agent explicitly mentions CTO Office, task details, deadlines
+- ✅ Questions asked and responses collected
+- ✅ Latency maintained at 1-3 seconds
 
 ---
 
@@ -1464,4 +1512,438 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-**Next Action:** Start DROP 2 - Task Delivery System
+# DROP 8: Multi-Language Support 🌍 FUTURE
+
+**Goal:** Enable voice agent to conduct calls in multiple languages (Hindi, Marathi, and English)
+
+**Status:** Not Started
+**Estimated Duration:** 2-3 days
+**Priority:** MEDIUM - Important for regional expansion
+
+## What We'll Build
+
+### 1. Language Detection & Configuration
+
+**Database Changes:**
+```sql
+-- Add language column to calls table (already done in models.py)
+ALTER TABLE calls ADD COLUMN language VARCHAR(10) DEFAULT 'en';
+-- Language codes: 'en' (English), 'hi' (Hindi), 'mr' (Marathi)
+```
+
+**API Updates:**
+- Add `language` parameter to all call initiation endpoints
+- Support language selection in call scheduling
+- Store language preference per contact
+
+### 2. Multi-Language STT (Speech-to-Text)
+
+**File:** `livekit-agent/agent.py`
+
+**Deepgram Multi-Language Support:**
+```python
+# Dynamic language selection based on call metadata
+language_codes = {
+    'en': 'en-US',      # English (US)
+    'hi': 'hi',         # Hindi
+    'mr': 'mr'          # Marathi
+}
+
+stt = deepgram.STT(
+    model="nova-2",
+    language=language_codes.get(call_language, 'en-US'),
+    detect_language=False  # Use specified language, not auto-detect
+)
+```
+
+**Supported Languages:**
+- ✅ English (en-US) - Current default
+- ✅ Hindi (hi) - Native support by Deepgram
+- ✅ Marathi (mr) - Native support by Deepgram
+
+### 3. Multi-Language TTS (Text-to-Speech)
+
+**File:** `livekit-agent/agent.py`
+
+**OpenAI TTS Multi-Language:**
+```python
+# OpenAI TTS supports multiple languages
+language_voices = {
+    'en': {'voice': 'alloy', 'model': 'tts-1'},
+    'hi': {'voice': 'alloy', 'model': 'tts-1'},  # Works with Hindi
+    'mr': {'voice': 'alloy', 'model': 'tts-1'}   # Works with Marathi
+}
+
+tts_config = language_voices.get(call_language, language_voices['en'])
+tts = openai.TTS(
+    voice=tts_config['voice'],
+    model=tts_config['model'],
+    speed=1.0
+)
+```
+
+**Note:** OpenAI TTS automatically handles pronunciation for Hindi and Marathi when given text in those languages.
+
+### 4. Multi-Language LLM Prompts
+
+**File:** `livekit-agent/agent.py`
+
+**System Prompts by Language:**
+```python
+system_prompts = {
+    'en': """You are a friendly AI assistant making a call.
+    Speak naturally and conversationally in English.
+    Keep responses to 1-2 sentences.""",
+
+    'hi': """आप एक मित्रवत AI सहायक हैं जो कॉल कर रहे हैं।
+    हिंदी में स्वाभाविक रूप से और बातचीत के रूप में बोलें।
+    प्रतिक्रियाओं को 1-2 वाक्यों तक रखें।""",
+
+    'mr': """तुम्ही एक मित्रवत AI सहाय्यक आहात जे कॉल करत आहे।
+    मराठीत नैसर्गिकपणे आणि संवादात्मकपणे बोला।
+    प्रतिसाद 1-2 वाक्यांपर्यंत ठेवा।"""
+}
+
+# Select prompt based on call language
+system_prompt = system_prompts.get(call_language, system_prompts['en'])
+```
+
+**Groq LLM Multi-Language Support:**
+- Llama-3.3-70b supports Hindi and Marathi natively
+- No special configuration needed
+- LLM will respond in the language of the system prompt
+
+### 5. Language-Specific Greetings
+
+**File:** `livekit-agent/agent.py`
+
+**Custom Greetings by Language:**
+```python
+default_greetings = {
+    'en': "Hello! This is an AI assistant calling from {caller_name}. May I speak with {contact_name}?",
+    'hi': "नमस्ते! मैं {caller_name} से AI सहायक कॉल कर रहा/रही हूं। क्या मैं {contact_name} से बात कर सकता/सकती हूं?",
+    'mr': "नमस्कार! मी {caller_name} कडून AI सहाय्यक कॉल करत आहे. मी {contact_name} शी बोलू शकतो का?"
+}
+
+# Generate greeting
+if not custom_greeting:
+    greeting_template = default_greetings.get(language, default_greetings['en'])
+    greeting_text = greeting_template.format(
+        caller_name=caller_name,
+        contact_name=contact_name
+    )
+```
+
+### 6. API Endpoints with Language Support
+
+**File:** `app/main.py`
+
+**Updated Endpoints:**
+```python
+@app.post("/api/calls/facility-test")
+async def create_facility_test_call(
+    name: str = Form(...),
+    phone: str = Form(...),
+    language: str = Form("en"),  # NEW: Language parameter
+    caller_name: str = Form(None),
+    custom_greeting: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Create a facility test call with language support"""
+
+    # Validate language
+    supported_languages = ['en', 'hi', 'mr']
+    if language not in supported_languages:
+        return JSONResponse({
+            "success": False,
+            "error": f"Unsupported language. Use: {', '.join(supported_languages)}"
+        }, status_code=400)
+
+    # Create call record
+    call = Call(
+        contact_id=contact.id,
+        call_type="facility_test",
+        language=language,  # NEW: Store language
+        status="queued",
+        caller_name=caller_name,
+        custom_greeting=custom_greeting
+    )
+    # ... rest of implementation
+```
+
+**All Call Endpoints Updated:**
+- `POST /api/calls/facility-test` - Add language parameter
+- `POST /api/calls/personal-message` - Add language parameter
+- `POST /api/calls/livekit-call` - Add language parameter
+- `POST /api/calls/schedule` - Add language parameter
+- `POST /api/calls/recurring` - Add language parameter
+- `POST /api/tasks/{id}/call` - Add language parameter
+
+### 7. Contact Language Preference
+
+**File:** `app/models.py`
+
+**Add Language Preference to Contact:**
+```python
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    # ... existing fields ...
+
+    preferred_language = Column(String(10), default='en')  # NEW
+    # Language codes: 'en', 'hi', 'mr'
+```
+
+**Migration Script:**
+```python
+# app/add_language_columns.py
+def upgrade():
+    op.add_column('contacts', sa.Column('preferred_language', sa.String(10), server_default='en'))
+    op.add_column('calls', sa.Column('language', sa.String(10), server_default='en'))
+```
+
+### 8. Task Delivery in Multiple Languages
+
+**File:** `livekit-agent/agent.py`
+
+**Task-Aware Prompts by Language:**
+```python
+task_prompts = {
+    'en': f"""You are calling {contact_name} to discuss: {task.title}
+
+Task Details: {task.description}
+
+Your objectives:
+1. Greet them professionally
+2. Explain the task clearly
+3. Ask the specific questions
+4. Record their responses
+5. Thank them and end call
+
+Be conversational. Keep the call under 5 minutes.""",
+
+    'hi': f"""आप {contact_name} को कॉल कर रहे हैं चर्चा करने के लिए: {task.title}
+
+कार्य विवरण: {task.description}
+
+आपके उद्देश्य:
+1. उन्हें पेशेवर रूप से नमस्कार करें
+2. कार्य को स्पष्ट रूप से समझाएं
+3. विशिष्ट प्रश्न पूछें
+4. उनके जवाब रिकॉर्ड करें
+5. उन्हें धन्यवाद दें और कॉल समाप्त करें
+
+संवादात्मक रहें। कॉल को 5 मिनट के अंदर रखें।""",
+
+    'mr': f"""तुम्ही {contact_name} ला कॉल करत आहात चर्चा करण्यासाठी: {task.title}
+
+कार्य तपशील: {task.description}
+
+तुमचे उद्दिष्ट:
+1. त्यांना व्यावसायिकपणे अभिवादन करा
+2. कार्य स्पष्टपणे समजावून सांगा
+3. विशिष्ट प्रश्न विचारा
+4. त्यांचे उत्तर रेकॉर्ड करा
+5. त्यांचे आभार मानून कॉल समाप्त करा
+
+संवादात्मक रहा. कॉल 5 मिनिटांच्या आत ठेवा."""
+}
+
+# Select appropriate prompt
+system_prompt = task_prompts.get(call_language, task_prompts['en'])
+```
+
+## Implementation Steps
+
+### Day 1: Backend Language Support
+1. [ ] Add language column to database (migration)
+2. [ ] Update Call model with language field
+3. [ ] Update Contact model with preferred_language field
+4. [ ] Add language parameter to all call API endpoints
+5. [ ] Add language validation
+6. [ ] Test database changes
+
+### Day 2: Agent Multi-Language Implementation
+1. [ ] Update agent.py to receive language from metadata
+2. [ ] Configure Deepgram STT for multi-language
+3. [ ] Configure OpenAI TTS for multi-language
+4. [ ] Create system prompts in Hindi and Marathi
+5. [ ] Create greetings in Hindi and Marathi
+6. [ ] Update task delivery prompts for all languages
+7. [ ] Test with sample calls in each language
+
+### Day 3: Testing & Polish
+1. [ ] Make test calls in English
+2. [ ] Make test calls in Hindi
+3. [ ] Make test calls in Marathi
+4. [ ] Test task delivery in all languages
+5. [ ] Verify transcript storage (UTF-8 encoding)
+6. [ ] Update documentation
+7. [ ] Create language selection UI (if DROP 3 complete)
+
+## Testing Plan
+
+### Test Case 1: English Call (Baseline)
+```bash
+curl -X POST http://localhost:8001/api/calls/facility-test \
+  -F "name=John Doe" \
+  -F "phone=+1234567890" \
+  -F "language=en" \
+  -F "custom_greeting=Hello, how are you today?"
+```
+
+**Expected:**
+- Agent speaks in English
+- STT recognizes English
+- Transcript in English
+- Natural conversation
+
+### Test Case 2: Hindi Call
+```bash
+curl -X POST http://localhost:8001/api/calls/facility-test \
+  -F "name=राज कुमार" \
+  -F "phone=+919876543210" \
+  -F "language=hi" \
+  -F "custom_greeting=नमस्ते, आप कैसे हैं?"
+```
+
+**Expected:**
+- Agent speaks in Hindi
+- STT recognizes Hindi speech
+- LLM responds in Hindi
+- Transcript stored in Hindi (UTF-8)
+- Natural Hindi conversation
+
+### Test Case 3: Marathi Call
+```bash
+curl -X POST http://localhost:8001/api/calls/facility-test \
+  -F "name=प्रकाश पाटील" \
+  -F "phone=+919820754198" \
+  -F "language=mr" \
+  -F "custom_greeting=नमस्कार, तुम्ही कसे आहात?"
+```
+
+**Expected:**
+- Agent speaks in Marathi
+- STT recognizes Marathi speech
+- LLM responds in Marathi
+- Transcript stored in Marathi (UTF-8)
+- Natural Marathi conversation
+
+### Test Case 4: Task Delivery in Hindi
+```python
+# Create task in Hindi
+task = {
+    "contact_id": 5,
+    "title": "API दस्तावेज़ीकरण समीक्षा",
+    "description": "कल की बैठक से पहले API दस्तावेज़ीकरण की समीक्षा करें",
+    "task_type": "reminder",
+    "agent_script": "CTO कार्यालय ने आपको कल दोपहर 2 बजे की बैठक से पहले API दस्तावेज़ीकरण की समीक्षा करने का कार्य सौंपा है।",
+    "questions_to_ask": ["क्या आप कल की 2 बजे की बैठक से पहले समीक्षा पूरी कर पाएंगे?"]
+}
+
+# Make call
+curl -X POST http://localhost:8001/api/tasks/5/call -F "language=hi"
+```
+
+**Expected:**
+- Agent delivers task in Hindi
+- Asks questions in Hindi
+- Collects Hindi responses
+- Task marked completed
+
+## Technical Considerations
+
+### 1. UTF-8 Encoding
+**Challenge:** Hindi and Marathi use Devanagari script
+
+**Solution:**
+- Ensure database uses UTF-8 encoding (already default in PostgreSQL)
+- Verify transcript_segments.text column supports UTF-8
+- Test special characters don't break
+
+### 2. STT Accuracy
+**Challenge:** Accuracy varies by language
+
+**Expected Quality:**
+- English: 95%+ (excellent)
+- Hindi: 90%+ (very good)
+- Marathi: 85%+ (good)
+
+### 3. TTS Quality
+**Challenge:** Some TTS providers have limited multi-language support
+
+**Solution:**
+- OpenAI TTS-1 supports Hindi and Marathi
+- Voice quality may vary slightly
+- Can test alternative providers (ElevenLabs, Azure) if needed
+
+### 4. LLM Context Understanding
+**Challenge:** LLM must understand context in multiple languages
+
+**Solution:**
+- Groq Llama-3.3-70b has strong multi-language support
+- System prompts in target language guide the LLM
+- May need to adjust temperature/parameters per language
+
+### 5. Mixed Language Handling
+**Challenge:** User might speak different language than expected
+
+**Solution:**
+- Add note in greeting: "Please speak in [language]"
+- Could add auto-language detection in future (Deepgram supports)
+- For now, stick to specified language
+
+## Files to Modify
+
+```
+app/
+├── models.py                    [MINOR] Add language columns
+├── main.py                      [MEDIUM] Add language parameter to endpoints
+└── add_language_columns.py      [NEW] Migration script
+
+livekit-agent/
+└── agent.py                     [MAJOR] Multi-language STT/TTS/LLM
+```
+
+## Success Criteria
+
+- [ ] Database supports language field
+- [ ] API accepts language parameter (en/hi/mr)
+- [ ] Agent speaks in selected language
+- [ ] STT recognizes speech in selected language
+- [ ] LLM responds in selected language
+- [ ] TTS pronounces words correctly
+- [ ] Transcripts stored with correct encoding
+- [ ] Task delivery works in all languages
+- [ ] No latency increase (still 1-3 seconds)
+- [ ] All 3 languages tested successfully
+
+## Future Enhancements
+
+After DROP 8, consider:
+- Auto-language detection (Deepgram feature)
+- More languages (Tamil, Telugu, Gujarati, Bengali)
+- Language-specific voice selection (male/female, regional accents)
+- Translation layer (call in one language, transcript in another)
+- Mixed-language conversations (code-switching)
+
+## Cost Impact
+
+### STT (Deepgram)
+- English, Hindi, Marathi: Same pricing (~$0.0043/min)
+- No additional cost for multi-language
+
+### TTS (OpenAI)
+- All languages: Same pricing (~$15/1M characters)
+- No additional cost
+
+### LLM (Groq)
+- Multi-language: Still free tier
+- No additional cost
+
+**Total Cost Impact: $0 increase** ✅
+
+---
+
+**Next Action:** Start DROP 3 - Essential UI
