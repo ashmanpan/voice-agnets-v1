@@ -43,6 +43,7 @@ class Call(Base):
     caller_name = Column(String(200))  # e.g., "Krishnaji's CTO office", "ABC Company"
     custom_greeting = Column(Text)  # Custom greeting text
     custom_subject = Column(String(200))  # Subject/purpose of call
+    language = Column(String(10), default="en")  # Language code: 'en', 'hi' (Hindi), 'mr' (Marathi)
 
     # Timing
     started_at = Column(DateTime)

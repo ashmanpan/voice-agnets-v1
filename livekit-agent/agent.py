@@ -316,16 +316,31 @@ def load_task_from_database(call_id: int):
         db = SessionLocal()
 
         # Check if this call is a task delivery
+        logger.info(f"🔍 Checking if call {call_id} is a task delivery call...")
         call = db.query(Call).filter(Call.id == call_id).first()
-        if not call or call.call_type != "task_delivery":
+
+        if not call:
+            logger.warning(f"⚠️  Call {call_id} not found in database")
+            db.close()
+            return None
+
+        logger.info(f"📞 Call {call_id} found - Type: {call.call_type}")
+
+        if call.call_type != "task_delivery":
+            logger.info(f"ℹ️  Call {call_id} is not a task delivery call, skipping task load")
             db.close()
             return None
 
         # Find the task linked to this call
+        logger.info(f"🔍 Looking for task linked to call {call_id}...")
         task = db.query(Task).filter(Task.assigned_call_id == call_id).first()
+
         if not task:
+            logger.warning(f"⚠️  No task found linked to call {call_id}")
             db.close()
             return None
+
+        logger.info(f"✅ Task found: {task.title} (ID: {task.id})")
 
         # Update task status to in_progress
         task.status = "in_progress"
@@ -343,11 +358,13 @@ def load_task_from_database(call_id: int):
         }
 
         db.close()
-        logger.info(f"📋 Task loaded: {task.title} (ID: {task.id})")
+        logger.info(f"📋 Task loaded successfully: {task.title} (ID: {task.id})")
         return task_data
 
     except Exception as e:
-        logger.error(f"Failed to load task: {e}")
+        logger.error(f"❌ Failed to load task for call {call_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -549,11 +566,27 @@ Remember: You're helping them with this task, not interrogating them."""
             greeting_text = custom_greeting
             logger.info(f"Using custom greeting: {greeting_text[:50]}...")
         else:
-            # Generate default greeting
-            if contact_name:
-                greeting_text = f"Hello! This is an AI assistant calling from {caller_name}. May I speak with {contact_name}?"
+            # Generate default greeting with cultural greetings
+            # Determine time of day for appropriate greeting
+            from datetime import datetime
+            import pytz
+
+            # Get current hour in Singapore timezone
+            sg_tz = pytz.timezone('Asia/Singapore')
+            current_hour = datetime.now(sg_tz).hour
+
+            # Choose time-based greeting
+            if 5 <= current_hour < 12:
+                time_greeting = "Good morning"
+            elif 12 <= current_hour < 17:
+                time_greeting = "Good afternoon"
             else:
-                greeting_text = "Hello! This is a test call from an AI assistant."
+                time_greeting = "Good evening"
+
+            if contact_name:
+                greeting_text = f"Namaskar! {time_greeting}! This is an AI assistant calling from {caller_name}. May I speak with {contact_name}?"
+            else:
+                greeting_text = f"Namaskar! {time_greeting}! This is a test call from an AI assistant."
 
         await session.generate_reply(
             instructions=f"Say: {greeting_text}"
