@@ -375,6 +375,7 @@ async def entrypoint(ctx: JobContext):
     This sets up the STT-LLM-TTS pipeline and starts the agent
     Handles both inbound and outbound calls
     NOW WITH TASK DELIVERY SUPPORT (DROP 2)
+    NOW WITH MULTI-LANGUAGE SUPPORT (DROP 8) - English, Hindi, Marathi
     """
     import json
     from livekit import api
@@ -395,6 +396,7 @@ async def entrypoint(ctx: JobContext):
     system_prompt = None
     max_turns = None
     task_data = None  # NEW: Task data for task delivery calls
+    language = "en"  # NEW (DROP 8): Language code (en/hi/mr)
 
     try:
         if ctx.job.metadata:
@@ -407,8 +409,9 @@ async def entrypoint(ctx: JobContext):
             caller_name = metadata.get("caller_name", "Krishnaji's CTO office")
             system_prompt = metadata.get("system_prompt")
             max_turns = metadata.get("max_turns", 8)  # Default to 8 turns like Twilio
+            language = metadata.get("language", "en")  # NEW (DROP 8): Get language
 
-            logger.info(f"Outbound call metadata: phone={phone_number}, call_id={call_id}, max_turns={max_turns}")
+            logger.info(f"Outbound call metadata: phone={phone_number}, call_id={call_id}, language={language}, max_turns={max_turns}")
             if custom_greeting:
                 logger.info(f"Custom greeting: {custom_greeting[:50]}...")
 
@@ -441,13 +444,22 @@ async def entrypoint(ctx: JobContext):
             await ctx.shutdown()
             return
 
+    # NEW (DROP 8): Define language-specific system prompts
+    base_system_prompts = {
+        'en': "You are a friendly AI assistant making a call. Speak naturally and conversationally in English. Keep each response to 1-2 sentences.",
+        'hi': "आप एक मित्रवत AI सहायक हैं जो कॉल कर रहे हैं। हिंदी में स्वाभाविक रूप से और बातचीत के रूप में बोलें। प्रतिक्रियाओं को 1-2 वाक्यों तक रखें।",
+        'mr': "तुम्ही एक मित्रवत AI सहाय्यक आहात जे कॉल करत आहे। मराठीत नैसर्गिकपणे आणि संवादात्मकपणे बोला। प्रतिसाद 1-2 वाक्यांपर्यंत ठेवा।"
+    }
+
     # NEW: Build task-aware system prompt if this is a task delivery call
     if task_data and not system_prompt:
         import json
         questions = json.loads(task_data['questions_to_ask']) if task_data['questions_to_ask'] else []
         questions_text = "\n".join([f"   {i+1}. {q}" for i, q in enumerate(questions)])
 
-        system_prompt = f"""You are calling {contact_name} to discuss an important task.
+        # Task prompts in multiple languages
+        task_prompts = {
+            'en': f"""You are calling {contact_name} to discuss an important task.
 
 Task: {task_data['title']}
 Details: {task_data['description']}
@@ -469,9 +481,59 @@ Important guidelines:
 - Keep the call focused on the task
 - Keep the call under 5 minutes
 
-Remember: You're helping them with this task, not interrogating them."""
+Remember: You're helping them with this task, not interrogating them.""",
 
-        logger.info(f"📋 Generated task-aware system prompt for: {task_data['title']}")
+            'hi': f"""{contact_name} को एक महत्वपूर्ण कार्य के बारे में बताने के लिए कॉल कर रहे हैं।
+
+कार्य: {task_data['title']}
+विवरण: {task_data['description']}
+
+आपके उद्देश्य:
+1. उन्हें पेशेवर और गर्मजोशी से नमस्कार करें
+2. कार्य को स्पष्ट रूप से समझाएं: {task_data['agent_script'] if task_data['agent_script'] else task_data['description']}
+3. {"यह विशिष्ट प्रश्न पूछें:" if questions else "उनकी पुष्टि और विचार प्राप्त करें।"}
+{questions_text if questions else ""}
+4. उनके जवाबों को ध्यान से सुनें
+5. उनकी समझ की पुष्टि करें
+6. उन्हें धन्यवाद दें और कॉल समाप्त करें
+
+महत्वपूर्ण दिशानिर्देश:
+- संवादात्मक और मित्रवत रहें, रोबोट जैसा नहीं
+- एक बार में 1-2 वाक्य बोलें
+- उन्हें जवाब देने का समय दें
+- यदि उनके प्रश्न हैं, तो स्वाभाविक रूप से उत्तर दें
+- कॉल को कार्य पर केंद्रित रखें
+- कॉल को 5 मिनट के अंदर रखें""",
+
+            'mr': f"""{contact_name} ला महत्त्वाच्या कार्याबद्दल चर्चा करण्यासाठी कॉल करत आहात।
+
+कार्य: {task_data['title']}
+तपशील: {task_data['description']}
+
+तुमचे उद्दिष्ट:
+1. त्यांचे व्यावसायिक आणि प्रेमळपणे स्वागत करा
+2. कार्य स्पष्टपणे समजावून सांगा: {task_data['agent_script'] if task_data['agent_script'] else task_data['description']}
+3. {"हे विशिष्ट प्रश्न विचारा:" if questions else "त्यांची पुष्टी आणि विचार घ्या।"}
+{questions_text if questions else ""}
+4. त्यांच्या उत्तरांकडे काळजीपूर्वक ऐका
+5. त्यांच्या समजाची पुष्टी करा
+6. त्यांचे आभार मानून कॉल संपवा
+
+महत्त्वाचे मार्गदर्शन:
+- संवादात्मक आणि मैत्रीपूर्ण रहा, यांत्रिक नाही
+- एका वेळी 1-2 वाक्ये बोला
+- त्यांना उत्तर देण्याची वेळ द्या
+- त्यांचे प्रश्न असतील तर नैसर्गिकपणे उत्तर द्या
+- कॉल कार्यावर केंद्रित ठेवा
+- कॉल 5 मिनिटांत संपवा"""
+        }
+
+        system_prompt = task_prompts.get(language, task_prompts['en'])
+        logger.info(f"📋 Generated task-aware system prompt for: {task_data['title']} in {language}")
+    elif not system_prompt:
+        # Use base system prompt in the specified language
+        system_prompt = base_system_prompts.get(language, base_system_prompts['en'])
+        logger.info(f"🌍 Using base system prompt in language: {language}")
 
     # Create voice assistant agent with custom settings
     assistant = VoiceAssistant(
@@ -487,11 +549,21 @@ Remember: You're helping them with this task, not interrogating them."""
     # Optimized for ultra-low latency with GROQ (blazing fast LLM!)
     import os
 
+    # NEW (DROP 8): Configure STT with language-specific settings
+    language_codes = {
+        'en': 'en-US',
+        'hi': 'hi',
+        'mr': 'mr'
+    }
+
     # Use Deepgram + Groq + OpenAI TTS for ultra-fast responses
     session = AgentSession(
-        stt=deepgram.STT(model="nova-2"),  # Deepgram Nova-2: ~300ms latency
+        stt=deepgram.STT(
+            model="nova-2",
+            language=language_codes.get(language, 'en-US')  # NEW (DROP 8): Language-specific STT
+        ),
         llm=openai.LLM(
-            model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms)
+            model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
             temperature=0.7,
             base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
             api_key=os.getenv("GROQ_API_KEY"),
@@ -499,7 +571,7 @@ Remember: You're helping them with this task, not interrogating them."""
         tts=openai.TTS(
             voice="alloy",
             speed=1.0,  # Normal speed - natural conversation
-        ),
+        ),  # OpenAI TTS-1 supports multi-language automatically
         vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
     )
 
@@ -566,8 +638,7 @@ Remember: You're helping them with this task, not interrogating them."""
             greeting_text = custom_greeting
             logger.info(f"Using custom greeting: {greeting_text[:50]}...")
         else:
-            # Generate default greeting with cultural greetings
-            # Determine time of day for appropriate greeting
+            # NEW (DROP 8): Language-specific greetings with cultural greetings
             from datetime import datetime
             import pytz
 
@@ -575,18 +646,54 @@ Remember: You're helping them with this task, not interrogating them."""
             sg_tz = pytz.timezone('Asia/Singapore')
             current_hour = datetime.now(sg_tz).hour
 
+            # Language-specific time-based greetings
+            greetings_by_language = {
+                'en': {
+                    'morning': 'Good morning',
+                    'afternoon': 'Good afternoon',
+                    'evening': 'Good evening',
+                    'salutation': 'Namaskar',
+                    'intro_with_name': f'This is an AI assistant calling from {caller_name}. May I speak with {{name}}?',
+                    'intro_test': 'This is a test call from an AI assistant.'
+                },
+                'hi': {
+                    'morning': 'सुप्रभात',
+                    'afternoon': 'नमस्कार',
+                    'evening': 'शुभ संध्या',
+                    'salutation': 'नमस्ते',
+                    'intro_with_name': f'मैं {caller_name} से AI सहायक कॉल कर रहा/रही हूं। क्या मैं {{name}} से बात कर सकता/सकती हूं?',
+                    'intro_test': 'यह एक AI सहायक का टेस्ट कॉल है।'
+                },
+                'mr': {
+                    'morning': 'सुप्रभात',
+                    'afternoon': 'नमस्कार',
+                    'evening': 'शुभ संध्याकाळ',
+                    'salutation': 'नमस्कार',
+                    'intro_with_name': f'मी {caller_name} कडून AI सहाय्यक कॉल करत आहे. मी {{name}} शी बोलू शकतो का?',
+                    'intro_test': 'हा AI सहाय्यकाचा चाचणी कॉल आहे।'
+                }
+            }
+
             # Choose time-based greeting
             if 5 <= current_hour < 12:
-                time_greeting = "Good morning"
+                time_key = 'morning'
             elif 12 <= current_hour < 17:
-                time_greeting = "Good afternoon"
+                time_key = 'afternoon'
             else:
-                time_greeting = "Good evening"
+                time_key = 'evening'
+
+            lang_greetings = greetings_by_language.get(language, greetings_by_language['en'])
+            time_greeting = lang_greetings[time_key]
+            salutation = lang_greetings['salutation']
 
             if contact_name:
-                greeting_text = f"Namaskar! {time_greeting}! This is an AI assistant calling from {caller_name}. May I speak with {contact_name}?"
+                intro = lang_greetings['intro_with_name'].format(name=contact_name)
+                greeting_text = f"{salutation}! {time_greeting}! {intro}"
             else:
-                greeting_text = f"Namaskar! {time_greeting}! This is a test call from an AI assistant."
+                intro = lang_greetings['intro_test']
+                greeting_text = f"{salutation}! {time_greeting}! {intro}"
+
+            logger.info(f"🌍 Generated {language} greeting: {greeting_text[:50]}...")
 
         await session.generate_reply(
             instructions=f"Say: {greeting_text}"

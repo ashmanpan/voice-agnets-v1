@@ -48,11 +48,13 @@ async def initiate_livekit_call(
     custom_greeting: str = None,
     caller_name: str = None,
     system_prompt: str = None,
-    max_turns: int = 8
+    max_turns: int = 8,
+    language: str = "en"  # NEW (DROP 8): Language code (en/hi/mr)
 ):
     """
     Initiate a LiveKit call (1-3 second latency)
     This is now the default for ALL calls.
+    NOW WITH MULTI-LANGUAGE SUPPORT (DROP 8) - English, Hindi, Marathi
     """
     import json
     from livekit import api as livekit_api
@@ -75,7 +77,8 @@ async def initiate_livekit_call(
             "caller_name": caller_name or "Krishnaji's CTO office",
             "sip_trunk_id": os.getenv("LIVEKIT_SIP_TRUNK_ID"),
             "system_prompt": system_prompt,
-            "max_turns": max_turns
+            "max_turns": max_turns,
+            "language": language  # NEW (DROP 8): Pass language to agent
         }
 
         # Dispatch agent to room
@@ -153,16 +156,18 @@ async def create_personal_message_call(
     phone: str = Form(...),
     message: str = Form(...),
     caller_name: str = Form(None),
+    language: str = Form("en"),  # NEW (DROP 8): Language parameter
     db: Session = Depends(get_db)
 ):
-    """Create a personal message call using LiveKit (1-3s latency)"""
+    """Create a personal message call using LiveKit (1-3s latency) with multi-language support"""
     # Create or get contact
     contact = db.query(Contact).filter(Contact.phone_number == phone).first()
     if not contact:
         contact = Contact(
             name=name,
             phone_number=phone,
-            contact_type="friend"
+            contact_type="friend",
+            preferred_language=language  # NEW (DROP 8): Set preferred language
         )
         db.add(contact)
         db.commit()
@@ -175,6 +180,7 @@ async def create_personal_message_call(
         custom_message=message,
         custom_greeting=message,  # Use message as greeting
         caller_name=caller_name or "Krishnaji's CTO office",
+        language=language,  # NEW (DROP 8): Store language in call record
         status="queued"
     )
     db.add(call)
@@ -189,13 +195,14 @@ async def create_personal_message_call(
             phone_number=phone,
             contact_name=name,
             custom_greeting=message,
-            caller_name=caller_name
+            caller_name=caller_name,
+            language=language  # NEW (DROP 8): Pass language to agent
         )
         return JSONResponse({
             "success": True,
             "call_id": call.id,
             "room_name": room_name,
-            "message": "LiveKit call initiated (1-3s latency!)"
+            "message": f"LiveKit call initiated in {language} (1-3s latency!)"
         })
     except Exception as e:
         return JSONResponse({
@@ -211,16 +218,18 @@ async def create_facility_test_call(
     caller_name: str = Form(None),  # Optional: e.g., "Krishnaji's CTO office"
     custom_greeting: str = Form(None),  # Optional: custom greeting
     custom_subject: str = Form(None),  # Optional: subject of call
+    language: str = Form("en"),  # NEW (DROP 8): Language parameter
     db: Session = Depends(get_db)
 ):
-    """Create a facility test call using LiveKit (1-3s latency)"""
+    """Create a facility test call using LiveKit (1-3s latency) with multi-language support"""
     # Create or get contact
     contact = db.query(Contact).filter(Contact.phone_number == phone).first()
     if not contact:
         contact = Contact(
             name=name,
             phone_number=phone,
-            contact_type="facility"
+            contact_type="facility",
+            preferred_language=language  # NEW (DROP 8): Set preferred language
         )
         db.add(contact)
         db.commit()
@@ -233,7 +242,8 @@ async def create_facility_test_call(
         status="queued",
         caller_name=caller_name or "Krishnaji's CTO office",  # Default
         custom_greeting=custom_greeting,
-        custom_subject=custom_subject
+        custom_subject=custom_subject,
+        language=language  # NEW (DROP 8): Store language in call record
     )
     db.add(call)
     db.commit()
@@ -247,13 +257,14 @@ async def create_facility_test_call(
             phone_number=phone,
             contact_name=name,
             custom_greeting=custom_greeting,
-            caller_name=caller_name
+            caller_name=caller_name,
+            language=language  # NEW (DROP 8): Pass language to agent
         )
         return JSONResponse({
             "success": True,
             "call_id": call.id,
             "room_name": room_name,
-            "message": "LiveKit test call initiated (1-3s latency!)"
+            "message": f"LiveKit test call initiated in {language} (1-3s latency!)"
         })
     except Exception as e:
         return JSONResponse({
@@ -1474,12 +1485,16 @@ async def initiate_task_delivery_call(
             }, status_code=404)
 
         # Create call record with task_delivery type FIRST
+        # NEW (DROP 8): Use contact's preferred language
+        preferred_lang = contact.preferred_language or "en"
+
         call = Call(
             contact_id=contact.id,
             call_type="task_delivery",  # CRITICAL: Set BEFORE agent starts
             direction="outbound",
             status="queued",
-            caller_name="Krishnaji's CTO office"
+            caller_name="Krishnaji's CTO office",
+            language=preferred_lang  # NEW (DROP 8): Set language from contact
         )
         db.add(call)
         db.commit()
@@ -1498,7 +1513,8 @@ async def initiate_task_delivery_call(
                 phone_number=contact.phone_number,
                 contact_name=contact.name,
                 custom_greeting=None,  # Agent will generate from task
-                caller_name="Krishnaji's CTO office"
+                caller_name="Krishnaji's CTO office",
+                language=preferred_lang  # NEW (DROP 8): Pass language to agent
             )
 
             return JSONResponse({

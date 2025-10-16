@@ -18,6 +18,7 @@ class Contact(Base):
     name = Column(String(100))
     phone_number = Column(String(20), nullable=False)
     contact_type = Column(String(20))  # 'friend' or 'facility'
+    preferred_language = Column(String(10), default="en")  # Language preference: 'en', 'hi', 'mr'
     created_at = Column(DateTime, default=datetime.utcnow)
 
     calls = relationship("Call", back_populates="contact")
