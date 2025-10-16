@@ -448,7 +448,10 @@ async def entrypoint(ctx: JobContext):
     base_system_prompts = {
         'en': "You are a friendly AI assistant making a call. Speak naturally and conversationally in English. Keep each response to 1-2 sentences.",
         'hi': "आप एक मित्रवत AI सहायक हैं जो कॉल कर रहे हैं। हिंदी में स्वाभाविक रूप से और बातचीत के रूप में बोलें। प्रतिक्रियाओं को 1-2 वाक्यों तक रखें।",
-        'mr': "तुम्ही एक मित्रवत AI सहाय्यक आहात जे कॉल करत आहे। मराठीत नैसर्गिकपणे आणि संवादात्मकपणे बोला। प्रतिसाद 1-2 वाक्यांपर्यंत ठेवा।"
+        'mr': "तुम्ही एक मित्रवत AI सहाय्यक आहात जे कॉल करत आहे। मराठीत नैसर्गिकपणे आणि संवादात्मकपणे बोला। प्रतिसाद 1-2 वाक्यांपर्यंत ठेवा।",
+        'kn': "ನೀವು ಕರೆ ಮಾಡುತ್ತಿರುವ ಸ್ನೇಹಪರ AI ಸಹಾಯಕರು. ಕನ್ನಡದಲ್ಲಿ ಸ್ವಾಭಾವಿಕವಾಗಿ ಮತ್ತು ಸಂಭಾಷಣಾತ್ಮಕವಾಗಿ ಮಾತನಾಡಿ. ಪ್ರತಿಕ್ರಿಯೆಗಳನ್ನು 1-2 ವಾಕ್ಯಗಳವರೆಗೆ ಇರಿಸಿ.",
+        'ml': "നിങ്ങൾ ഒരു സൗഹൃദപരമായ AI സഹായകനാണ് വിളിക്കുന്നത്. മലയാളത്തിൽ സ്വാഭാവികമായും സംഭാഷണാത്മകമായും സംസാരിക്കുക. പ്രതികരണങ്ങൾ 1-2 വാക്യങ്ങളിൽ സൂക്ഷിക്കുക.",
+        'gu': "તમે કૉલ કરી રહેલા મિત્રતાપૂર્ણ AI સહાયક છો. ગુજરાતીમાં સ્વાભાવિક અને સંવાદાત્મક રીતે વાત કરો. પ્રતિસાદને 1-2 વાક્યો સુધી રાખો."
     }
 
     # NEW: Build task-aware system prompt if this is a task delivery call
@@ -553,7 +556,10 @@ Remember: You're helping them with this task, not interrogating them.""",
     language_codes = {
         'en': 'en-US',
         'hi': 'hi',
-        'mr': 'mr'
+        'mr': 'mr',
+        'kn': 'kn',  # Kannada
+        'ml': 'ml',  # Malayalam
+        'gu': 'gu'   # Gujarati
     }
 
     # Use Deepgram + Groq + OpenAI TTS for ultra-fast responses
@@ -671,6 +677,30 @@ Remember: You're helping them with this task, not interrogating them.""",
                     'salutation': 'नमस्कार',
                     'intro_with_name': f'मी {caller_name} कडून AI सहाय्यक कॉल करत आहे. मी {{name}} शी बोलू शकतो का?',
                     'intro_test': 'हा AI सहाय्यकाचा चाचणी कॉल आहे।'
+                },
+                'kn': {
+                    'morning': 'ಶುಭೋದಯ',
+                    'afternoon': 'ನಮಸ್ಕಾರ',
+                    'evening': 'ಶುಭ ಸಂಜೆ',
+                    'salutation': 'ನಮಸ್ಕಾರ',
+                    'intro_with_name': f'ನಾನು {caller_name} ನಿಂದ AI ಸಹಾಯಕ ಕರೆ ಮಾಡುತ್ತಿದ್ದೇನೆ. ನಾನು {{name}} ಅವರೊಂದಿಗೆ ಮಾತನಾಡಬಹುದೇ?',
+                    'intro_test': 'ಇದು AI ಸಹಾಯಕರ ಪರೀಕ್ಷಾ ಕರೆ.'
+                },
+                'ml': {
+                    'morning': 'സുപ്രഭാതം',
+                    'afternoon': 'നമസ്കാരം',
+                    'evening': 'ശുഭ സന്ധ്യ',
+                    'salutation': 'നമസ്കാരം',
+                    'intro_with_name': f'ഞാൻ {caller_name} ൽ നിന്നുള്ള AI സഹായകനാണ്. എനിക്ക് {{name}} നോട് സംസാരിക്കാമോ?',
+                    'intro_test': 'ഇത് ഒരു AI സഹായകന്റെ പരീക്ഷണ കോൾ ആണ്.'
+                },
+                'gu': {
+                    'morning': 'સુપ્રભાત',
+                    'afternoon': 'નમસ્તે',
+                    'evening': 'શુભ સાંજ',
+                    'salutation': 'નમસ્તે',
+                    'intro_with_name': f'હું {caller_name} તરફથી AI સહાયક કૉલ કરી રહ્યો છું. શું હું {{name}} સાથે વાત કરી શકું?',
+                    'intro_test': 'આ AI સહાયકનો પરીક્ષણ કૉલ છે.'
                 }
             }
 
