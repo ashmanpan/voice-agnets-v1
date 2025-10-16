@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Phone, ListTodo } from 'lucide-react';
+import { LayoutDashboard, Phone, ListTodo, Calendar, BarChart3 } from 'lucide-react';
 
 export const Navigation = () => {
   const location = useLocation();
@@ -7,6 +7,8 @@ export const Navigation = () => {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/actions', label: 'Actions & Tasks', icon: ListTodo },
+    { path: '/schedule', label: 'Schedule', icon: Calendar },
+    { path: '/reports', label: 'Reports', icon: BarChart3 },
   ];
 
   return (

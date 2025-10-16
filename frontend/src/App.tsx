@@ -4,6 +4,8 @@ import { Navigation } from './components/common/Navigation';
 import { Dashboard } from './pages/Dashboard';
 import { TranscriptViewer } from './pages/TranscriptViewer';
 import { Actions } from './pages/Actions';
+import { Schedule } from './pages/Schedule';
+import { Reports } from './pages/Reports';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +26,8 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/calls/:id" element={<TranscriptViewer />} />
             <Route path="/actions" element={<Actions />} />
+            <Route path="/schedule" element={<Schedule />} />
+            <Route path="/reports" element={<Reports />} />
           </Routes>
         </div>
       </BrowserRouter>
