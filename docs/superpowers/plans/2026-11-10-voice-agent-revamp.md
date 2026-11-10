@@ -156,10 +156,41 @@ def test_health_ok(client):
 
 ## Phases 2–10 (OUTLINE — detailed before each starts)
 
-### Phase 2 — Safety
-- API-key/bearer auth dependency; apply to all `/api/*` mutating + call-trigger routes. Tests: 401 on missing/bad key (Review Focus #1).
-- CORS middleware scoped to frontend origin(s) from env; + Vite dev proxy. Tests: preflight allow/deny (Review Focus #2).
-- Rate limiting (`slowapi`) on call-trigger routes. Tests: 429 past threshold (Review Focus #3).
+### Phase 2 — Safety (DETAILED)
+
+**Approach:** Endpoints still live on the `app` object (routers come in Phase 3),
+so enforce auth and rate-limits via **middleware** (one place, no 33-decorator
+edits) rather than per-route dependencies. Tighten to router dependencies in
+Phase 3.
+
+**Task 2.1 — API-key auth middleware.**
+- Create `app/security.py`: `APIKeyMiddleware` requiring header `X-API-Key ==
+  os.getenv("API_KEY")` for mutating methods (POST/PUT/PATCH/DELETE) under
+  `/api/`. Fail-closed: if `API_KEY` unset, protected routes 401. Webhook paths
+  (`/twilio/*`, `/livekit/*`) are not under `/api/`, so external callers are
+  unaffected.
+- Wire `app.add_middleware(APIKeyMiddleware)` in `app/main.py`.
+- conftest: set `API_KEY` test env; `client` sends the key by default (existing
+  tests keep passing); add `unauthenticated_client` fixture with no key header.
+- Tests (`app/tests/test_auth.py`): POST `/api/calls/livekit-call` → 401 with no
+  key and 401 with wrong key (Review Focus #1); authed `client` still records a
+  dispatch (regression guard).
+
+**Task 2.2 — CORS.**
+- Add `CORSMiddleware` scoped to origins from `CORS_ORIGINS` env (comma-split;
+  default the Vite dev origin `http://localhost:5173`), `allow_credentials=True`,
+  methods/headers incl. `X-API-Key`.
+- Add a Vite dev proxy in `frontend/vite.config.ts` (`/api` → `http://localhost:8001`).
+- Tests (`app/tests/test_cors.py`): preflight `OPTIONS /api/calls/livekit-call`
+  from the allowed origin returns the `access-control-allow-origin` header; a
+  non-allowlisted origin does not (Review Focus #2).
+
+**Task 2.3 — Rate limiting.**
+- Add `slowapi` to `requirements.txt`; a limiter keyed by `X-API-Key` (fallback
+  remote addr); apply a configurable limit (`CALL_RATE_LIMIT`, default e.g.
+  `10/minute`) to the call-trigger paths via middleware/handler.
+- Tests (`app/tests/test_rate_limit.py`): with a low limit, the N+1th POST to a
+  call-trigger endpoint returns 429 and records no extra dispatch (Review Focus #3).
 
 ### Phase 3 — Modularization
 - Split `main.py` into `app/routers/{calls,tasks,actions,contacts,reports,webhooks}.py`, `app/services/`, `app/schemas/`. Behavior-parity tests from Phase 1 must stay green throughout. Add the missing `GET /api/calls` list endpoint (flips the Task 1.3 xfail to pass).
