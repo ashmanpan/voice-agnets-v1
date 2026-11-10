@@ -17,6 +17,7 @@ from livekit.agents import (
 from livekit.plugins import openai, silero
 
 import providers  # STT/TTS provider selection (openai | elevenlabs | deepgram)
+import agent_tools  # MCP servers + local skills for mid-call tool use
 
 # Database integration for transcript storage
 from sqlalchemy import create_engine
@@ -572,10 +573,16 @@ Remember: You're helping them with this task, not interrogating them.""",
     #    STT_PROVIDER / TTS_PROVIDER (e.g. TTS_PROVIDER=elevenlabs).
     #  - "realtime": one OpenAI Realtime speech-to-speech model, lowest latency.
     # See providers.py.
+    # MCP tool servers for mid-call tool use. Only pass the kwarg when servers
+    # are configured (MCP_SERVERS set), so the default path is unchanged.
+    mcp_servers = agent_tools.build_mcp_servers()
+    mcp_kwargs = {"mcp_servers": mcp_servers} if mcp_servers else {}
+
     if providers.pipeline_mode() == "realtime":
         session = AgentSession(
             llm=providers.build_realtime_llm(),
             vad=ctx.proc.userdata["vad"],
+            **mcp_kwargs,
         )
     else:
         session = AgentSession(
@@ -588,6 +595,7 @@ Remember: You're helping them with this task, not interrogating them.""",
             ),
             tts=providers.build_tts(),
             vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
+            **mcp_kwargs,
         )
 
     # Add event handler for capturing conversation items (CORRECT LiveKit approach)
