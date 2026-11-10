@@ -14,7 +14,7 @@ from livekit.agents import (
     WorkerOptions,
     cli,
 )
-from livekit.plugins import openai, silero, deepgram
+from livekit.plugins import openai, silero
 
 # Database integration for transcript storage
 from sqlalchemy import create_engine
@@ -401,7 +401,10 @@ async def entrypoint(ctx: JobContext):
     try:
         if ctx.job.metadata:
             metadata = json.loads(ctx.job.metadata)
-            phone_number = metadata.get("phone_number")
+            phone_number = metadata.get("phone_number", "").strip()
+            # Ensure + prefix for E.164 format (Twilio requires it)
+            if phone_number and not phone_number.startswith("+"):
+                phone_number = "+" + phone_number
             sip_trunk_id = metadata.get("sip_trunk_id")
             call_id = metadata.get("call_id")
             contact_name = metadata.get("contact_name")
@@ -562,11 +565,11 @@ Remember: You're helping them with this task, not interrogating them.""",
         'gu': 'gu'   # Gujarati
     }
 
-    # Use Deepgram + Groq + OpenAI TTS for ultra-fast responses
+    # Use OpenAI Whisper STT + Groq LLM + OpenAI TTS
     session = AgentSession(
-        stt=deepgram.STT(
-            model="nova-2",
-            language=language_codes.get(language, 'en-US')  # NEW (DROP 8): Language-specific STT
+        stt=openai.STT(
+            model="whisper-1",
+            language=language if language != 'en' else None  # Whisper auto-detects English
         ),
         llm=openai.LLM(
             model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi

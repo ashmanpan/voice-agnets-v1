@@ -1,0 +1,9 @@
+# Local override: host port 5432 is used by another Postgres (langfuse)
+services:
+  db:
+    ports: !override
+      - "5433:5432"
+  livekit-agent:
+    environment:
+      # SQLAlchemy 2.1 defaults to psycopg v3; image only has psycopg2
+      - DATABASE_URL=postgresql+psycopg2://voiceagent:voiceagent@db:5432/voiceagent
