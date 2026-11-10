@@ -15,7 +15,6 @@ import os
 import sys
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.chdir(APP_DIR)
 if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
@@ -34,8 +33,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import models  # noqa: E402
-import main  # noqa: E402
+# main mounts StaticFiles(directory="static") at import, resolved against the
+# CWD. chdir into app/ ONLY for the import, then restore the CWD so pytest's
+# testpaths/collection stay anchored at the repo root (a persistent chdir here
+# makes pytest wander into sibling manual scripts).
+_orig_cwd = os.getcwd()
+os.chdir(APP_DIR)
+try:
+    import models  # noqa: E402
+    import main  # noqa: E402
+finally:
+    os.chdir(_orig_cwd)
 
 from tests.fakes import FakeLiveKitAPI  # noqa: E402
 
