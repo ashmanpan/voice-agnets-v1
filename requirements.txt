@@ -16,3 +16,4 @@ pydantic-settings==2.1.0
 apscheduler==3.10.4
 livekit>=0.17.0
 livekit-api>=1.0.0
+alembic==1.20.1
