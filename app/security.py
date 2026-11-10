@@ -99,6 +99,21 @@ def _is_protected(method: str, path: str) -> bool:
     return path.startswith("/api/") and method != "OPTIONS"
 
 
+class TwilioToggleMiddleware(BaseHTTPMiddleware):
+    """Disable the legacy Twilio TwiML webhooks when ENABLE_TWILIO_WEBHOOKS is
+    'false'. LiveKit SIP is the primary telephony path; this lets an operator
+    turn off the legacy path once Twilio is confirmed unused."""
+
+    async def dispatch(self, request, call_next):
+        if request.url.path.startswith("/twilio/") and \
+                os.getenv("ENABLE_TWILIO_WEBHOOKS", "true").lower() == "false":
+            return JSONResponse(
+                {"detail": "Twilio webhooks disabled; LiveKit is the active telephony path."},
+                status_code=410,
+            )
+        return await call_next(request)
+
+
 class APIKeyMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if _is_protected(request.method, request.url.path):

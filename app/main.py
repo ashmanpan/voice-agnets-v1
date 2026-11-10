@@ -38,9 +38,11 @@ app = FastAPI(title="Voice Agent System")
 
 # Security middleware (see app/security.py). add_middleware stacks in reverse,
 # so adding RateLimit then APIKey makes auth run first (reject before counting).
-from security import APIKeyMiddleware, RateLimitMiddleware  # noqa: E402
+from security import APIKeyMiddleware, RateLimitMiddleware, TwilioToggleMiddleware  # noqa: E402
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(APIKeyMiddleware)
+# Legacy Twilio webhooks gate (LiveKit SIP is primary; see ENABLE_TWILIO_WEBHOOKS).
+app.add_middleware(TwilioToggleMiddleware)
 
 # CORS scoped to the frontend origin(s) from CORS_ORIGINS (comma-separated).
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402

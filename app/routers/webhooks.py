@@ -1,4 +1,8 @@
-"""Telephony webhooks: Twilio (TwiML + call status) and LiveKit call events.
+"""Telephony webhooks: LiveKit call events (primary) and Twilio TwiML (legacy).
+
+LiveKit SIP is the active telephony path. The /twilio/* TwiML flow is legacy
+and can be disabled via ENABLE_TWILIO_WEBHOOKS=false (see security.py).
+
 These are called by external providers and are intentionally not behind the
 API-key auth (they live under /twilio and /livekit, not /api)."""
 from datetime import datetime
