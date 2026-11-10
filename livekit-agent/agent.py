@@ -400,6 +400,9 @@ async def entrypoint(ctx: JobContext):
     max_turns = None
     task_data = None  # NEW: Task data for task delivery calls
     language = "en"  # NEW (DROP 8): Language code (en/hi/mr)
+    contact_name = None
+    custom_greeting = None
+    caller_name = "Krishnaji's CTO office"
 
     try:
         if ctx.job.metadata:
@@ -547,9 +550,27 @@ Remember: You're helping them with this task, not interrogating them.""",
         system_prompt = task_prompts.get(language, task_prompts['en'])
         logger.info(f"📋 Generated task-aware system prompt for: {task_data['title']} in {language}")
     elif not system_prompt:
-        # Use base system prompt in the specified language
-        system_prompt = base_system_prompts.get(language, base_system_prompts['en'])
-        logger.info(f"🌍 Using base system prompt in language: {language}")
+        # Build a contextual prompt so the agent knows WHO it is and WHY it is
+        # calling (otherwise the LLM hallucinates its identity/purpose).
+        lang_names = {'en': 'English', 'hi': 'Hindi', 'mr': 'Marathi',
+                      'ml': 'Malayalam', 'gu': 'Gujarati'}
+        lang_name = lang_names.get(language, 'English')
+        purpose = custom_greeting or (
+            "a brief test and demonstration of this AI phone-calling system"
+        )
+        system_prompt = (
+            f"You are a friendly AI voice assistant calling from {caller_name}. "
+            f"You are speaking with {contact_name or 'the person who answered'}. "
+            f"The reason for this call is: {purpose} "
+            f"Always identify yourself with exactly this phrasing: "
+            f"'an AI assistant calling from {caller_name}'. "
+            f"Never claim to be ChatGPT, OpenAI, Gemini, or any other product or company. "
+            f"If asked why you are calling, clearly state the reason above. "
+            f"Do NOT invent meetings, appointments, names, or reasons you were not given. "
+            f"Speak naturally and conversationally in {lang_name}. "
+            f"Keep each response to 1-2 sentences."
+        )
+        logger.info(f"🌍 Using contextual system prompt in language: {language}")
 
     # Create voice assistant agent with custom settings
     assistant = VoiceAssistant(
