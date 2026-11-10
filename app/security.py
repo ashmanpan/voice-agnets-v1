@@ -7,6 +7,7 @@ protected routes are rejected rather than left open.
 Webhook endpoints live under /twilio/* and /livekit/* (not /api/), so external
 providers that cannot send our key are unaffected.
 """
+import hmac
 import os
 import threading
 import time
@@ -14,8 +15,6 @@ from collections import defaultdict
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-
-MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # --- Rate limiting (in-memory fixed window, keyed by API key / client host) ---
 _rl_lock = threading.Lock()
@@ -58,7 +57,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 def _is_protected(method: str, path: str) -> bool:
-    return method in MUTATING_METHODS and path.startswith("/api/")
+    # Protect every method under /api/ — reads expose PII (transcripts,
+    # contacts) too. OPTIONS is exempt so CORS preflight works.
+    return path.startswith("/api/") and method != "OPTIONS"
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
@@ -66,7 +67,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if _is_protected(request.method, request.url.path):
             expected = os.getenv("API_KEY")
             provided = request.headers.get("x-api-key")
-            if not expected or provided != expected:
+            if not expected or not provided or not hmac.compare_digest(provided, expected):
                 return JSONResponse(
                     {"detail": "Invalid or missing API key"}, status_code=401
                 )
