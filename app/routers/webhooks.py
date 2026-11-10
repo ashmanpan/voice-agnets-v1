@@ -15,6 +15,7 @@ from twilio_handler import (
     update_call_status,
 )
 from call_analyzer import CallAnalyzer
+import tasks
 
 router = APIRouter()
 
@@ -347,29 +348,24 @@ async def livekit_webhook(request: Request, db: Session = Depends(get_db)):
 
                     print(f"✅ Call {call_id} completed - starting analysis in background")
 
-                    # BACKGROUND ANALYSIS - Zero impact on call latency
-                    # Run analysis in separate thread to not block webhook response
+                    # BACKGROUND ANALYSIS - Zero impact on call latency.
+                    # Runs off the webhook thread with retries + logging; lets
+                    # exceptions propagate so the runner can retry.
                     def analyze_in_background():
                         from models import SessionLocal
                         from call_analyzer import CallAnalyzer
 
-                        # Create new database session for background thread
                         bg_db = SessionLocal()
                         try:
                             bg_call = bg_db.query(Call).filter(Call.id == call_id).first()
                             if bg_call:
-                                analyzer = CallAnalyzer()
-                                analyzer.analyze_call(bg_call, bg_db)
-                                print(f"✅ Background analysis completed for call {call_id}")
-                        except Exception as e:
-                            print(f"⚠️  Background analysis failed for call {call_id}: {e}")
+                                CallAnalyzer().analyze_call(bg_call, bg_db)
                         finally:
                             bg_db.close()
 
-                    # Start analysis thread (non-blocking)
-                    analysis_thread = threading.Thread(target=analyze_in_background)
-                    analysis_thread.daemon = True
-                    analysis_thread.start()
+                    tasks.run_background(
+                        analyze_in_background, retries=2, name=f"analysis:call-{call_id}"
+                    )
 
         return {"status": "ok"}
 
