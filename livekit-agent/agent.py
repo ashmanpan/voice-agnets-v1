@@ -16,6 +16,8 @@ from livekit.agents import (
 )
 from livekit.plugins import openai, silero
 
+import providers  # STT/TTS provider selection (openai | elevenlabs | deepgram)
+
 # Database integration for transcript storage
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -565,22 +567,18 @@ Remember: You're helping them with this task, not interrogating them.""",
         'gu': 'gu'   # Gujarati
     }
 
-    # Use OpenAI Whisper STT + Groq LLM + OpenAI TTS
+    # STT/TTS are chosen by STT_PROVIDER / TTS_PROVIDER (default OpenAI;
+    # TTS_PROVIDER=elevenlabs for ElevenLabs). LLM stays Groq Llama-3.3.
+    # See providers.py.
     session = AgentSession(
-        stt=openai.STT(
-            model="whisper-1",
-            language=language if language != 'en' else None  # Whisper auto-detects English
-        ),
+        stt=providers.build_stt(language=language),
         llm=openai.LLM(
             model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
             temperature=0.7,
             base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
             api_key=os.getenv("GROQ_API_KEY"),
         ),
-        tts=openai.TTS(
-            voice="alloy",
-            speed=1.0,  # Normal speed - natural conversation
-        ),  # OpenAI TTS-1 supports multi-language automatically
+        tts=providers.build_tts(),
         vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
     )
 
