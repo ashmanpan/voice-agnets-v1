@@ -15,3 +15,15 @@ def test_call_trigger_blocks_past_limit(client, dispatch_records, monkeypatch):
     blocked = client.post(CALL_TRIGGER, data=CALL_BODY)
     assert blocked.status_code == 429
     assert len(dispatch_records) == 3  # the blocked request never dispatched
+
+
+def test_task_assign_is_rate_limited(client, monkeypatch):
+    """Call-placing/costly routes beyond /api/calls/ are covered too
+    (security review: incomplete coverage)."""
+    monkeypatch.setenv("CALL_RATE_LIMIT", "2")
+    security.reset_rate_limit()
+
+    for _ in range(2):
+        client.post("/api/tasks/assign", json={})
+    blocked = client.post("/api/tasks/assign", json={})
+    assert blocked.status_code == 429

@@ -16,9 +16,20 @@ from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
-# --- Rate limiting (in-memory fixed window, keyed by API key / client host) ---
+# --- Rate limiting (in-memory fixed window) ---
 _rl_lock = threading.Lock()
 _rl_hits: dict = defaultdict(list)
+_RL_MAX_BUCKETS = 4096  # hard cap so buckets can't grow without bound
+
+# Explicit set of costly/call-placing POST routes (exact paths).
+_CALL_TRIGGER_PATHS = frozenset({
+    "/api/calls/personal-message",
+    "/api/calls/facility-test",
+    "/api/calls/livekit-call",
+    "/api/calls/schedule",
+    "/api/calls/recurring",
+    "/api/tasks/assign",
+})
 
 
 def reset_rate_limit() -> None:
@@ -32,18 +43,33 @@ def _rl_config():
 
 
 def _is_call_trigger(method: str, path: str) -> bool:
-    return method == "POST" and (path.startswith("/api/calls/") or path.endswith("/call"))
+    if method != "POST":
+        return False
+    # Explicit call-placing routes, plus the per-task call endpoint
+    # /api/tasks/{id}/call (id is dynamic).
+    return path in _CALL_TRIGGER_PATHS or (
+        path.startswith("/api/tasks/") and path.endswith("/call")
+    )
+
+
+def _rl_bucket_key(request) -> str:
+    """Bucket authenticated requests under a fixed id (an attacker cannot
+    create unbounded buckets via the X-API-Key header); otherwise key by the
+    client IP."""
+    expected = os.getenv("API_KEY")
+    provided = request.headers.get("x-api-key")
+    if expected and provided and hmac.compare_digest(provided, expected):
+        return "authenticated"
+    return request.client.host if request.client else "anonymous"
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """429s call-trigger POSTs once a key exceeds CALL_RATE_LIMIT per window."""
+    """429s call-trigger POSTs once a bucket exceeds CALL_RATE_LIMIT per window."""
 
     async def dispatch(self, request, call_next):
         if _is_call_trigger(request.method, request.url.path):
             limit, window = _rl_config()
-            key = request.headers.get("x-api-key") or (
-                request.client.host if request.client else "anonymous"
-            )
+            key = _rl_bucket_key(request)
             now = time.monotonic()
             with _rl_lock:
                 hits = _rl_hits[key]
@@ -53,7 +79,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         {"detail": "Rate limit exceeded"}, status_code=429
                     )
                 hits.append(now)
+                self._evict_if_needed()
         return await call_next(request)
+
+    @staticmethod
+    def _evict_if_needed():
+        """Drop empty buckets, then oldest arbitrary buckets, to stay bounded."""
+        if len(_rl_hits) <= _RL_MAX_BUCKETS:
+            return
+        for k in [k for k, v in _rl_hits.items() if not v]:
+            del _rl_hits[k]
+        while len(_rl_hits) > _RL_MAX_BUCKETS:
+            _rl_hits.pop(next(iter(_rl_hits)))
 
 
 def _is_protected(method: str, path: str) -> bool:
