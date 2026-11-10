@@ -595,7 +595,9 @@ Remember: You're helping them with this task, not interrogating them.""",
         session = AgentSession(
             stt=providers.build_stt(language=language),
             llm=openai.LLM(
-                model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
+                # Configurable via GROQ_MODEL; default a model current Groq keys
+                # have access to (llama-3.3 was retired on this account).
+                model=os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"),
                 temperature=0.7,
                 base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
                 api_key=os.getenv("GROQ_API_KEY"),
