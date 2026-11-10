@@ -52,3 +52,7 @@ Thumbs.db
 tmp/
 temp/
 .venv/
+
+# Throwaway local deploy-test compose overrides
+docker-compose.deploytest.yml
+docker-compose.prodtest.yml

@@ -9,7 +9,8 @@ services:
       POSTGRES_DB: voiceagent
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      # Schema is applied by the app's entrypoint via Alembic (see Dockerfile),
+      # not a static SQL dump, so it always matches the models.
     ports:
       - "5432:5432"
     healthcheck:
