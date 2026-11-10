@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy agent code
-COPY agent.py .
+# Copy agent code (agent.py plus the provider/tool modules it imports)
+COPY agent.py providers.py agent_tools.py .
 
 # Run the agent
 CMD ["python", "agent.py", "start"]

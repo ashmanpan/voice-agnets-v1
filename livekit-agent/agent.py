@@ -436,13 +436,20 @@ async def entrypoint(ctx: JobContext):
     if phone_number and sip_trunk_id:
         logger.info(f"Initiating outbound call to {phone_number}")
         try:
+            sip_req_kwargs = dict(
+                room_name=ctx.room.name,
+                sip_trunk_id=sip_trunk_id,
+                sip_call_to=phone_number,
+                participant_identity=phone_number,
+            )
+            # Caller ID (the "From" number). Must be a number you own on the
+            # trunk's provider; an invalid/absent From is rejected instantly.
+            from_number = os.getenv("SIP_FROM_NUMBER")
+            if from_number:
+                sip_req_kwargs["sip_number"] = from_number
+                logger.info(f"Using caller ID (From): {from_number}")
             await ctx.api.sip.create_sip_participant(
-                api.CreateSIPParticipantRequest(
-                    room_name=ctx.room.name,
-                    sip_trunk_id=sip_trunk_id,
-                    sip_call_to=phone_number,
-                    participant_identity=phone_number,
-                )
+                api.CreateSIPParticipantRequest(**sip_req_kwargs)
             )
             logger.info(f"SIP participant created for {phone_number}")
         except Exception as e:
@@ -556,7 +563,7 @@ Remember: You're helping them with this task, not interrogating them.""",
 
     # Create agent session with STT, LLM, and TTS using actual plugins
     # Optimized for ultra-low latency with GROQ (blazing fast LLM!)
-    import os
+    # (os is imported at module level; no local import needed)
 
     # NEW (DROP 8): Configure STT with language-specific settings
     language_codes = {
