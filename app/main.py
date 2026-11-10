@@ -32,6 +32,7 @@ from scheduler_service import (
 )
 from call_analyzer import CallAnalyzer
 from daily_report import DailyReportGenerator
+from services.livekit_service import initiate_livekit_call
 
 app = FastAPI(title="Voice Agent System")
 
@@ -59,81 +60,6 @@ app.add_middleware(
 # Routers (Phase 3 modularization — endpoints extracted from this file).
 from routers import actions as actions_router  # noqa: E402
 app.include_router(actions_router.router)
-
-
-# ========================
-# LiveKit Call Initiation (Default for all calls)
-# ========================
-
-async def initiate_livekit_call(
-    db: Session,
-    call_id: int,
-    phone_number: str,
-    contact_name: str,
-    custom_greeting: str = None,
-    caller_name: str = None,
-    system_prompt: str = None,
-    max_turns: int = 8,
-    language: str = "en"  # NEW (DROP 8): Language code (en/hi/mr)
-):
-    """
-    Initiate a LiveKit call (1-3 second latency)
-    This is now the default for ALL calls.
-    NOW WITH MULTI-LANGUAGE SUPPORT (DROP 8) - English, Hindi, Marathi
-    """
-    import json
-    from livekit import api as livekit_api
-
-    try:
-        lk_api = livekit_api.LiveKitAPI(
-            url=os.getenv("LIVEKIT_URL"),
-            api_key=os.getenv("LIVEKIT_API_KEY"),
-            api_secret=os.getenv("LIVEKIT_API_SECRET"),
-        )
-
-        room_name = f"call-{call_id}"
-
-        # Prepare metadata for agent
-        metadata = {
-            "phone_number": phone_number,
-            "contact_name": contact_name,
-            "greeting": custom_greeting,
-            "call_id": call_id,
-            "caller_name": caller_name or "Krishnaji's CTO office",
-            "sip_trunk_id": os.getenv("LIVEKIT_SIP_TRUNK_ID"),
-            "system_prompt": system_prompt,
-            "max_turns": max_turns,
-            "language": language  # NEW (DROP 8): Pass language to agent
-        }
-
-        # Dispatch agent to room
-        dispatch_response = await lk_api.agent_dispatch.create_dispatch(
-            livekit_api.CreateAgentDispatchRequest(
-                room=room_name,
-                agent_name="voice-assistant",
-                metadata=json.dumps(metadata)
-            )
-        )
-
-        print(f"✅ LiveKit call initiated: Room={room_name}, Phone={phone_number}, Call ID={call_id}")
-
-        # Update call record
-        call = db.query(Call).filter(Call.id == call_id).first()
-        if call:
-            call.livekit_room_name = room_name
-            call.status = "in-progress"
-            db.commit()
-
-        return room_name
-
-    except Exception as e:
-        print(f"❌ LiveKit call failed: {e}")
-        # Update call status to failed
-        call = db.query(Call).filter(Call.id == call_id).first()
-        if call:
-            call.status = "failed"
-            db.commit()
-        raise
 
 
 # Start scheduler on application startup
@@ -737,6 +663,33 @@ async def resume_call(call_id: int, db: Session = Depends(get_db)):
             "success": False,
             "error": str(e)
         }, status_code=500)
+
+
+@app.get("/api/calls")
+async def list_calls(
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """List recent calls with basic contact info (newest first)."""
+    query = db.query(Call)
+    if status:
+        query = query.filter(Call.status == status)
+    calls = query.order_by(Call.created_at.desc()).limit(limit).all()
+
+    items = []
+    for call in calls:
+        contact = db.query(Contact).filter(Contact.id == call.contact_id).first()
+        items.append({
+            "id": call.id,
+            "status": call.status,
+            "call_type": call.call_type,
+            "contact_name": contact.name if contact else None,
+            "contact_phone": contact.phone_number if contact else None,
+            "duration": call.duration,
+            "created_at": call.created_at.isoformat() if call.created_at else None,
+        })
+    return {"success": True, "calls": items, "count": len(items)}
 
 
 @app.get("/api/calls/{call_id}")

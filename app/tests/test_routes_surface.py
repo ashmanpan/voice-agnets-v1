@@ -9,6 +9,7 @@ EXPECTED_ROUTES = {
     ("GET", "/health"),
     ("GET", "/api/actions"),
     ("GET", "/api/actions/{action_id}"),
+    ("GET", "/api/calls"),
     ("GET", "/api/calls/{call_id}"),
     ("GET", "/api/calls/{call_id}/analysis"),
     ("GET", "/api/reports/summary"),
