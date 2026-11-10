@@ -27,6 +27,9 @@ os.environ.setdefault("TWILIO_ACCOUNT_SID", "AC" + "0" * 32)
 os.environ.setdefault("TWILIO_AUTH_TOKEN", "test-twilio-token")
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
+TEST_API_KEY = "test-secret-key"
+os.environ.setdefault("API_KEY", TEST_API_KEY)
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -91,12 +94,9 @@ def db_session(_TestingSessionLocal):
         session.close()
 
 
-@pytest.fixture
-def client(_TestingSessionLocal):
-    """A TestClient whose get_db dependency is bound to the test DB.
-
-    Not used as a context manager, so the app's startup scheduler never runs.
-    """
+def _make_client(_TestingSessionLocal, headers=None):
+    """Build a TestClient bound to the test DB. Not used as a context manager,
+    so the app's startup scheduler never runs."""
     def override_get_db():
         db = _TestingSessionLocal()
         try:
@@ -105,7 +105,23 @@ def client(_TestingSessionLocal):
             db.close()
 
     main.app.dependency_overrides[models.get_db] = override_get_db
-    test_client = TestClient(main.app)
+    return TestClient(main.app, headers=headers or {})
+
+
+@pytest.fixture
+def client(_TestingSessionLocal):
+    """Authenticated TestClient: sends the API key on every request."""
+    test_client = _make_client(_TestingSessionLocal, {"x-api-key": os.environ["API_KEY"]})
+    try:
+        yield test_client
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def unauthenticated_client(_TestingSessionLocal):
+    """TestClient that sends no API key, for testing rejection."""
+    test_client = _make_client(_TestingSessionLocal)
     try:
         yield test_client
     finally:

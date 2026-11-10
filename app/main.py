@@ -35,6 +35,11 @@ from daily_report import DailyReportGenerator
 
 app = FastAPI(title="Voice Agent System")
 
+# API-key auth on mutating /api routes (fail-closed; webhooks under /twilio,
+# /livekit are exempt). See app/security.py.
+from security import APIKeyMiddleware  # noqa: E402
+app.add_middleware(APIKeyMiddleware)
+
 
 # ========================
 # LiveKit Call Initiation (Default for all calls)
