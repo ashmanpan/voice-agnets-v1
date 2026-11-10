@@ -40,6 +40,21 @@ app = FastAPI(title="Voice Agent System")
 from security import APIKeyMiddleware  # noqa: E402
 app.add_middleware(APIKeyMiddleware)
 
+# CORS scoped to the frontend origin(s) from CORS_ORIGINS (comma-separated).
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+_cors_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ========================
 # LiveKit Call Initiation (Default for all calls)
