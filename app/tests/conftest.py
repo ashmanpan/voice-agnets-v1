@@ -37,6 +37,23 @@ from sqlalchemy.pool import StaticPool
 import models  # noqa: E402
 import main  # noqa: E402
 
+from tests.fakes import FakeLiveKitAPI  # noqa: E402
+
+
+@pytest.fixture
+def dispatch_records():
+    """List that records every LiveKit agent dispatch made during a test."""
+    return []
+
+
+@pytest.fixture(autouse=True)
+def block_external(monkeypatch, dispatch_records):
+    """Replace the LiveKit API with a recording fake so no test performs a
+    real agent dispatch / network call. Applied to every test."""
+    import livekit.api as livekit_api
+    monkeypatch.setattr(livekit_api, "LiveKitAPI", FakeLiveKitAPI(dispatch_records))
+    yield
+
 
 @pytest.fixture
 def db_engine():
