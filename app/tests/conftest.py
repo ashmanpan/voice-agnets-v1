@@ -66,6 +66,15 @@ def block_external(monkeypatch, dispatch_records):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """Clear the in-memory rate-limit counters before each test so counts
+    don't leak between tests sharing the same API key."""
+    import security
+    security.reset_rate_limit()
+    yield
+
+
 @pytest.fixture
 def db_engine():
     """A fresh in-memory SQLite DB with the app's schema, per test."""

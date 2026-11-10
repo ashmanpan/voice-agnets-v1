@@ -35,9 +35,10 @@ from daily_report import DailyReportGenerator
 
 app = FastAPI(title="Voice Agent System")
 
-# API-key auth on mutating /api routes (fail-closed; webhooks under /twilio,
-# /livekit are exempt). See app/security.py.
-from security import APIKeyMiddleware  # noqa: E402
+# Security middleware (see app/security.py). add_middleware stacks in reverse,
+# so adding RateLimit then APIKey makes auth run first (reject before counting).
+from security import APIKeyMiddleware, RateLimitMiddleware  # noqa: E402
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(APIKeyMiddleware)
 
 # CORS scoped to the frontend origin(s) from CORS_ORIGINS (comma-separated).
