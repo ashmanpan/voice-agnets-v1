@@ -21,14 +21,11 @@ _rl_lock = threading.Lock()
 _rl_hits: dict = defaultdict(list)
 _RL_MAX_BUCKETS = 4096  # hard cap so buckets can't grow without bound
 
-# Explicit set of costly/call-placing POST routes (exact paths).
+# Costly POST routes outside the /api/calls/ prefix (exact paths).
 _CALL_TRIGGER_PATHS = frozenset({
-    "/api/calls/personal-message",
-    "/api/calls/facility-test",
-    "/api/calls/livekit-call",
-    "/api/calls/schedule",
-    "/api/calls/recurring",
     "/api/tasks/assign",
+    "/api/analyze-all-calls",
+    "/api/reports/daily",
 })
 
 
@@ -45,10 +42,13 @@ def _rl_config():
 def _is_call_trigger(method: str, path: str) -> bool:
     if method != "POST":
         return False
-    # Explicit call-placing routes, plus the per-task call endpoint
-    # /api/tasks/{id}/call (id is dynamic).
-    return path in _CALL_TRIGGER_PATHS or (
-        path.startswith("/api/tasks/") and path.endswith("/call")
+    # Safer prefix default: every POST under /api/calls/ (place/schedule/
+    # analyze/resume/cancel/pause, incl. dynamic {id} subpaths), plus explicit
+    # costly routes elsewhere and the per-task call endpoint /api/tasks/{id}/call.
+    return (
+        path.startswith("/api/calls/")
+        or path in _CALL_TRIGGER_PATHS
+        or (path.startswith("/api/tasks/") and path.endswith("/call"))
     )
 
 

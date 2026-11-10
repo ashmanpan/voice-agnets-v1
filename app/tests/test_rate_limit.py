@@ -27,3 +27,15 @@ def test_task_assign_is_rate_limited(client, monkeypatch):
         client.post("/api/tasks/assign", json={})
     blocked = client.post("/api/tasks/assign", json={})
     assert blocked.status_code == 429
+
+
+def test_dynamic_call_subpath_is_rate_limited(client, monkeypatch):
+    """Every POST under /api/calls/ is limited, including dynamic/expensive
+    subpaths like /api/calls/{id}/analyze (security review: coverage regression)."""
+    monkeypatch.setenv("CALL_RATE_LIMIT", "2")
+    security.reset_rate_limit()
+
+    for _ in range(2):
+        client.post("/api/calls/999/analyze")
+    blocked = client.post("/api/calls/999/analyze")
+    assert blocked.status_code == 429
