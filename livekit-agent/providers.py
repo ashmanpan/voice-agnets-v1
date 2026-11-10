@@ -14,6 +14,28 @@ import os
 DEFAULT_TTS = "openai"
 DEFAULT_STT = "openai"
 
+# Pipeline modes: "cascade" = STT->LLM->TTS (default); "realtime" = a single
+# speech-to-speech model (OpenAI Realtime) with no separate STT/TTS.
+PIPELINE_MODES = ("cascade", "realtime")
+
+
+def pipeline_mode(mode=None):
+    """Return the configured PIPELINE_MODE, validated. Unknown => ValueError."""
+    name = (mode or os.getenv("PIPELINE_MODE", "cascade")).lower()
+    if name not in PIPELINE_MODES:
+        raise ValueError(
+            f"Unknown PIPELINE_MODE '{name}'. Options: {list(PIPELINE_MODES)}"
+        )
+    return name
+
+
+def build_realtime_llm():
+    """Build the OpenAI Realtime speech-to-speech model (used in realtime mode)."""
+    from livekit.plugins import openai
+    return openai.realtime.RealtimeModel(
+        voice=os.getenv("REALTIME_VOICE", "alloy"),
+    )
+
 
 def _default_tts_builders():
     def openai_tts():

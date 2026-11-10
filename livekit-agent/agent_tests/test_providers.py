@@ -48,3 +48,19 @@ def test_default_stt_is_openai(monkeypatch):
 def test_stt_provider_env_selects_deepgram(monkeypatch):
     monkeypatch.setenv("STT_PROVIDER", "deepgram")
     assert providers.build_stt(builders=_stt_builders()) == "DEEPGRAM_STT"
+
+
+def test_default_pipeline_mode_is_cascade(monkeypatch):
+    monkeypatch.delenv("PIPELINE_MODE", raising=False)
+    assert providers.pipeline_mode() == "cascade"
+
+
+def test_pipeline_mode_env_selects_realtime(monkeypatch):
+    monkeypatch.setenv("PIPELINE_MODE", "realtime")
+    assert providers.pipeline_mode() == "realtime"
+
+
+def test_unknown_pipeline_mode_raises(monkeypatch):
+    monkeypatch.setenv("PIPELINE_MODE", "bogus")
+    with pytest.raises(ValueError):
+        providers.pipeline_mode()

@@ -567,20 +567,28 @@ Remember: You're helping them with this task, not interrogating them.""",
         'gu': 'gu'   # Gujarati
     }
 
-    # STT/TTS are chosen by STT_PROVIDER / TTS_PROVIDER (default OpenAI;
-    # TTS_PROVIDER=elevenlabs for ElevenLabs). LLM stays Groq Llama-3.3.
+    # PIPELINE_MODE selects the architecture:
+    #  - "cascade" (default): STT -> LLM -> TTS, each swappable via
+    #    STT_PROVIDER / TTS_PROVIDER (e.g. TTS_PROVIDER=elevenlabs).
+    #  - "realtime": one OpenAI Realtime speech-to-speech model, lowest latency.
     # See providers.py.
-    session = AgentSession(
-        stt=providers.build_stt(language=language),
-        llm=openai.LLM(
-            model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
-            temperature=0.7,
-            base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
-            api_key=os.getenv("GROQ_API_KEY"),
-        ),
-        tts=providers.build_tts(),
-        vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
-    )
+    if providers.pipeline_mode() == "realtime":
+        session = AgentSession(
+            llm=providers.build_realtime_llm(),
+            vad=ctx.proc.userdata["vad"],
+        )
+    else:
+        session = AgentSession(
+            stt=providers.build_stt(language=language),
+            llm=openai.LLM(
+                model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
+                temperature=0.7,
+                base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
+                api_key=os.getenv("GROQ_API_KEY"),
+            ),
+            tts=providers.build_tts(),
+            vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
+        )
 
     # Add event handler for capturing conversation items (CORRECT LiveKit approach)
     @session.on("conversation_item_added")
