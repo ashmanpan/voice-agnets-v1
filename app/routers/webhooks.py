@@ -358,12 +358,14 @@ async def livekit_webhook(request: Request, db: Session = Depends(get_db)):
                     def analyze_in_background():
                         from models import SessionLocal
                         from call_analyzer import CallAnalyzer
+                        import observability
 
                         bg_db = SessionLocal()
                         try:
-                            bg_call = bg_db.query(Call).filter(Call.id == call_id).first()
-                            if bg_call:
-                                CallAnalyzer().analyze_call(bg_call, bg_db)
+                            with observability.traced("call-analysis", call_id=call_id):
+                                bg_call = bg_db.query(Call).filter(Call.id == call_id).first()
+                                if bg_call:
+                                    CallAnalyzer().analyze_call(bg_call, bg_db)
                         finally:
                             bg_db.close()
 

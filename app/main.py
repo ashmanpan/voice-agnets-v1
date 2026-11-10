@@ -33,6 +33,7 @@ from scheduler_service import (
 from call_analyzer import CallAnalyzer
 from daily_report import DailyReportGenerator
 from services.livekit_service import initiate_livekit_call
+from logging_config import configure_logging
 
 app = FastAPI(title="Voice Agent System")
 
@@ -71,6 +72,7 @@ app.include_router(webhooks_router.router)
 # Start scheduler on application startup
 @app.on_event("startup")
 async def startup_event():
+    configure_logging()
     start_scheduler()
 
 # Stop scheduler on application shutdown
