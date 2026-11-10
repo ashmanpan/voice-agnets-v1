@@ -610,10 +610,13 @@ Remember: You're helping them with this task, not interrogating them.""",
     def on_conversation_item_added(event):
         """Capture all conversation items - both user and agent"""
         try:
-            role = event.item.role  # 'user' or 'assistant'
-            text_content = event.item.text_content
+            item = event.item
+            # Some conversation items (e.g. AgentHandoff) have no role/text —
+            # skip them instead of crashing on a missing attribute.
+            role = getattr(item, "role", None)
+            text_content = getattr(item, "text_content", None)
 
-            if text_content:
+            if role and text_content:
                 speaker = "user" if role == "user" else "agent"
                 logger.info(f"{'👤' if role == 'user' else '🤖'} {role.capitalize()} said: {text_content}")
 
