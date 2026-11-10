@@ -14,7 +14,10 @@ from livekit.agents import (
     WorkerOptions,
     cli,
 )
-from livekit.plugins import openai, silero, deepgram
+from livekit.plugins import openai, silero
+
+import providers  # STT/TTS provider selection (openai | elevenlabs | deepgram)
+import agent_tools  # MCP servers + local skills for mid-call tool use
 
 # Database integration for transcript storage
 from sqlalchemy import create_engine
@@ -401,7 +404,10 @@ async def entrypoint(ctx: JobContext):
     try:
         if ctx.job.metadata:
             metadata = json.loads(ctx.job.metadata)
-            phone_number = metadata.get("phone_number")
+            phone_number = metadata.get("phone_number", "").strip()
+            # Ensure + prefix for E.164 format (Twilio requires it)
+            if phone_number and not phone_number.startswith("+"):
+                phone_number = "+" + phone_number
             sip_trunk_id = metadata.get("sip_trunk_id")
             call_id = metadata.get("call_id")
             contact_name = metadata.get("contact_name")
@@ -562,24 +568,35 @@ Remember: You're helping them with this task, not interrogating them.""",
         'gu': 'gu'   # Gujarati
     }
 
-    # Use Deepgram + Groq + OpenAI TTS for ultra-fast responses
-    session = AgentSession(
-        stt=deepgram.STT(
-            model="nova-2",
-            language=language_codes.get(language, 'en-US')  # NEW (DROP 8): Language-specific STT
-        ),
-        llm=openai.LLM(
-            model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
-            temperature=0.7,
-            base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
-            api_key=os.getenv("GROQ_API_KEY"),
-        ),
-        tts=openai.TTS(
-            voice="alloy",
-            speed=1.0,  # Normal speed - natural conversation
-        ),  # OpenAI TTS-1 supports multi-language automatically
-        vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
-    )
+    # PIPELINE_MODE selects the architecture:
+    #  - "cascade" (default): STT -> LLM -> TTS, each swappable via
+    #    STT_PROVIDER / TTS_PROVIDER (e.g. TTS_PROVIDER=elevenlabs).
+    #  - "realtime": one OpenAI Realtime speech-to-speech model, lowest latency.
+    # See providers.py.
+    # MCP tool servers for mid-call tool use. Only pass the kwarg when servers
+    # are configured (MCP_SERVERS set), so the default path is unchanged.
+    mcp_servers = agent_tools.build_mcp_servers()
+    mcp_kwargs = {"mcp_servers": mcp_servers} if mcp_servers else {}
+
+    if providers.pipeline_mode() == "realtime":
+        session = AgentSession(
+            llm=providers.build_realtime_llm(),
+            vad=ctx.proc.userdata["vad"],
+            **mcp_kwargs,
+        )
+    else:
+        session = AgentSession(
+            stt=providers.build_stt(language=language),
+            llm=openai.LLM(
+                model="llama-3.3-70b-versatile",  # Groq's fastest model (~500ms) - supports Hindi/Marathi
+                temperature=0.7,
+                base_url="https://api.groq.com/openai/v1",  # Groq API endpoint
+                api_key=os.getenv("GROQ_API_KEY"),
+            ),
+            tts=providers.build_tts(),
+            vad=ctx.proc.userdata["vad"],  # Voice Activity Detection
+            **mcp_kwargs,
+        )
 
     # Add event handler for capturing conversation items (CORRECT LiveKit approach)
     @session.on("conversation_item_added")
