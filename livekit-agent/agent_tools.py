@@ -26,20 +26,38 @@ def mcp_server_urls(raw=None):
     return [u.strip() for u in raw.split(",") if u.strip()]
 
 
+def mcp_auth_headers():
+    """Authorization headers forwarded to MCP servers for IAM-based authz.
+
+    The MCP servers enforce per-identity permissions; the agent presents an
+    identity token (MCP_AUTH_TOKEN) rather than deciding authorization itself.
+    Empty when no token is configured.
+    """
+    token = os.getenv("MCP_AUTH_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _default_mcp_factory():
-    def make(url):
+    def make(url, headers=None):
         from livekit.agents import mcp
+        if headers:
+            return mcp.MCPServerHTTP(url, headers=headers)
         return mcp.MCPServerHTTP(url)
     return make
 
 
 def build_mcp_servers(urls=None, *, factory=None):
-    """Build MCP server objects for the configured URLs (empty => no tools)."""
+    """Build MCP server objects for the configured URLs (empty => no tools).
+
+    Each server is built with the IAM auth headers so the server can authorize
+    the agent's identity.
+    """
     urls = urls if urls is not None else mcp_server_urls()
     if not urls:
         return []
     factory = factory or _default_mcp_factory()
-    return [factory(u) for u in urls]
+    headers = mcp_auth_headers()
+    return [factory(u, headers=headers) for u in urls]
 
 
 def skill(fn):
